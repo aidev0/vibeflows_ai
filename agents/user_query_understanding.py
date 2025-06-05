@@ -7,7 +7,7 @@ Analyzes user requirements and extracts key information for app/workflow develop
 
 from typing import List, Dict, Any
 import json
-from llm_inference import run_inference
+from agents.llm_inference import run_inference
 
 OUTPUT_SCHEMA = {
     "project_type": "string - 'app' if building complete application, 'workflow' if creating automation/integration, 'unclear' if ambiguous",

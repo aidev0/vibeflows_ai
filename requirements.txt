@@ -1,0 +1,41 @@
+# Core AI/ML packages
+numpy>=1.24.0
+pandas>=2.0.0
+scikit-learn>=1.3.0
+torch>=2.0.0
+transformers>=4.30.0
+
+# LLM and Agent packages
+pydantic>=2.0.0  # For schema validation
+openai>=1.0.0    # For LLM API access
+anthropic>=0.5.0  # For Claude models
+langchain>=0.0.300  # For agent orchestration
+google-cloud-aiplatform>=1.36.0  # For Google Cloud AI
+google-cloud-core>=2.3.0
+google-api-core>=2.15.0
+google-generativeai>=0.3.0  # For Google's Generative AI
+
+# Development and testing
+pytest>=7.4.0
+black>=23.7.0
+flake8>=6.1.0
+mypy>=1.5.0
+
+# Jupyter
+jupyter>=1.0.0
+notebook>=7.0.0
+ipykernel>=6.0.0
+
+# Utilities
+python-dotenv>=1.0.0
+requests>=2.31.0
+tqdm>=4.65.0 
+
+# MongoDB
+pymongo>=4.9.0,<5.0.0  # Updated to be compatible with motor 3.7.1
+
+# FastAPI
+fastapi>=0.104.0
+uvicorn>=0.24.0
+fastapi==0.104.1
+motor>=3.7.1

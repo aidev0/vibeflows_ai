@@ -7,7 +7,7 @@ Only responsible for generating user-friendly responses.
 """
 
 from typing import List, Dict, Any
-from llm_inference import run_inference
+from agents.llm_inference import run_inference
 
 SYSTEM = """
 You are the user interface agent for VibeFlows, a marketing automation AI.
