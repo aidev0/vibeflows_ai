@@ -7,7 +7,7 @@ Updated to work with the new next_agent router while preserving flow structure.
 
 import json
 import os
-from typing import Dict, Any, List
+from typing import Dict, Any, List, AsyncGenerator
 from datetime import datetime
 from dotenv import load_dotenv
 from pymongo import MongoClient
@@ -540,15 +540,15 @@ def get_last_messages(chat_id: str) -> Dict[str, Any]:
             "last_ai_response": None
         }
 
-def run_flow(user_query: Dict[str, Any]) -> str:
+async def run_flow(user_query: Dict[str, Any]) -> AsyncGenerator[Dict[str, Any], None]:
     """
-    Main entry point: Execute the flow with user query.
+    Main entry point: Execute the flow with user query and stream responses.
     
     Args:
         user_query: Message document with chatId, text, sender_id, etc.
         
-    Returns:
-        AI response string
+    Yields:
+        Dict containing response data and type
     """
     
     # Get required fields
@@ -557,7 +557,11 @@ def run_flow(user_query: Dict[str, Any]) -> str:
     sender_id = user_query.get("sender_id")
     
     if not chat_id:
-        return "Error: chatId required in message document"
+        yield {
+            "type": "error",
+            "text": "Error: chatId required in message document"
+        }
+        return
     
     # Get user data
     user_data = get_user_data(sender_id) if sender_id else None
@@ -581,7 +585,6 @@ def run_flow(user_query: Dict[str, Any]) -> str:
         "conversation_state": "processing"
     }
     
-    # Execute the flow
     try:
         # First, get user understanding
         understanding_result = get_user_understanding([{"role": "user", "content": user_message}])
@@ -590,33 +593,44 @@ def run_flow(user_query: Dict[str, Any]) -> str:
                 understanding_result = json.loads(understanding_result.replace("```json", "").replace("```", ""))
             except json.JSONDecodeError as e:
                 print(f"Error parsing understanding result: {e}")
-                return "Error processing your request. Please try again."
+                error_doc = save_message(
+                    chat_id,
+                    "Error processing your request. Please try again.",
+                    "ai",
+                    "simple_text"
+                )
+                if error_doc:
+                    yield error_doc
+                return
         
         context["understanding_result"] = understanding_result
         
-        # Save understanding result
-        save_message(
+        # Save and yield understanding result
+        understanding_doc = save_message(
             chat_id,
             "This is our understanding analysis. Please let us know if you have any questions or feedback.",
             "ai",
             "user_understanding_json",
             json_data=understanding_result
         )
+        if understanding_doc:
+            yield understanding_doc
         
-        # Generate mermaid diagram
+        # Generate and yield mermaid diagram
         mermaid_diagram = create_mermaid_diagram(understanding_result)
         context["mermaid_diagram"] = mermaid_diagram
         
-        # Save mermaid diagram
-        save_message(
+        mermaid_doc = save_message(
             chat_id,
             "This is a design for workflow. Please let us know more details so we update the design and build you a workflow to solve your specific task.",
             "ai",
             "mermaid",
             mermaid=mermaid_diagram
         )
+        if mermaid_doc:
+            yield mermaid_doc
         
-        # Generate user interface response with only relevant context
+        # Generate and yield user interface response
         interface_context = {
             "understanding": understanding_result,
             "mermaid_diagram": mermaid_diagram,
@@ -633,24 +647,29 @@ def run_flow(user_query: Dict[str, Any]) -> str:
             interface_context
         )
         
-        # Save the response
-        save_message(chat_id, final_response, "ai", "simple_text")
-        
-        return final_response
+        # Save and yield the final response
+        final_doc = save_message(chat_id, final_response, "ai", "simple_text")
+        if final_doc:
+            yield final_doc
         
     except Exception as e:
         error_response = f"I apologize, but I encountered an error: {str(e)}"
         print(f"🔍 DEBUG - Error response: {error_response}")
-        save_message(chat_id, error_response, "ai", "simple_text")
-        return error_response
+        error_doc = save_message(chat_id, error_response, "ai", "simple_text")
+        if error_doc:
+            yield error_doc
 
 if __name__ == "__main__":
     # Test example
-    test_message = {
-        "chatId": "test_chat_123",
-        "text": "I want to automate lead generation",
-        "sender_id": "test_user_456"
-    }
+    async def test_flow():
+        test_message = {
+            "chatId": "test_chat_123",
+            "text": "I want to automate lead generation",
+            "sender_id": "test_user_456"
+        }
+        
+        async for response in run_flow(test_message):
+            print(f"Response: {response}")
     
-    response = run_flow(test_message)
-    print(f"Final response: {response}")
+    import asyncio
+    asyncio.run(test_flow())
