@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """
-User Interface Orchestrator (Refactored)
-=========================================
-Updated to work with the new next_agent router while preserving flow structure.
+User Interface Orchestrator (Fixed)
+====================================
+Fixed MongoDB ObjectId serialization issues for streaming responses.
 """
 
 import json
 import os
 from typing import Dict, Any, List, AsyncGenerator
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 from pymongo import MongoClient
+from bson import ObjectId
 
 # Import agents
 from agents.user_query_understanding import get_user_understanding
@@ -26,100 +27,6 @@ mongo_client = MongoClient(os.getenv("MONGODB_URI"))
 db = mongo_client[os.getenv("MONGODB_DATABASE")]
 messages_collection = db["messages"]
 users_collection = db["users"]
-
-# Keep the original flow structure
-# VIBEFLOWS_FLOW = {
-#     "flow_name": "VibeFlows Core Experience Flow",
-#     "entry_point": "user_query_understanding",
-#     "nodes": [
-#         {
-#             "id": "user_query_understanding",
-#             "name": "🔍 Understanding Agent",
-#             "type": "agent",
-#             "agent_name": "user_query_understanding",
-#             "metadata": {"entry_point_node": True}
-#         },
-#         {
-#             "id": "confidence_check",
-#             "name": "🎯 Confidence Check",
-#             "type": "condition",
-#             "agent_name": "next_agent",
-#             "conditions": [
-#                 {"condition": "understanding_result.confidence >= 0.8", "next_node": "mermaid_designer"},
-#                 {"condition": "understanding_result.confidence >= 0.6 AND understanding_result.confidence < 0.8", "next_node": "user_interface_clarification"},
-#                 {"condition": "understanding_result.confidence < 0.6", "next_node": "user_interface_more_info"}
-#             ],
-#             "metadata": {"decision_node": True}
-#         },
-#         {
-#             "id": "mermaid_designer",
-#             "name": "🎨 Mermaid Designer Agent",
-#             "type": "agent",
-#             "agent_name": "mermaid_designer"
-#         },
-#         {
-#             "id": "user_interface_present_design",
-#             "name": "👀 Present Design",
-#             "type": "agent",
-#             "agent_name": "user_interface",
-#             "action": "present_design_for_approval",
-#             "metadata": {"awaits_user_response": True}
-#         },
-#         {
-#             "id": "approval_check",
-#             "name": "✅ Approval Check",
-#             "type": "condition",
-#             "agent_name": "next_agent",
-#             "conditions": [
-#                 {"condition": "user_response == 'approve'", "next_node": "user_interface_approval_confirmed"},
-#                 {"condition": "user_response == 'request_changes'", "next_node": "mermaid_designer_update"},
-#                 {"condition": "user_response == 'ask_questions'", "next_node": "user_interface_answer_questions"}
-#             ],
-#             "metadata": {"decision_node": True, "user_input_required": True}
-#         },
-#         {
-#             "id": "user_interface_approval_confirmed",
-#             "name": "🎉 Design Approved",
-#             "type": "agent",
-#             "agent_name": "user_interface",
-#             "action": "confirm_design_approval"
-#         },
-#         {
-#             "id": "user_interface_building_started",
-#             "name": "🚀 Building Started Notification",
-#             "type": "agent",
-#             "agent_name": "user_interface",
-#             "action": "notify_building_started",
-#             "metadata": {"final_success_state": True}
-#         },
-#         {
-#             "id": "user_interface_clarification",
-#             "name": "❓ Ask Clarification",
-#             "type": "agent",
-#             "agent_name": "user_interface",
-#             "action": "ask_clarifying_questions",
-#             "metadata": {"requires_user_response": True}
-#         },
-#         {
-#             "id": "user_interface_more_info",
-#             "name": "🔄 Request More Info",
-#             "type": "agent",
-#             "agent_name": "user_interface",
-#             "action": "request_more_information",
-#             "metadata": {"requires_user_response": True}
-#         }
-#     ],
-#     "edges": [
-#         {"from": "user_query_understanding", "to": "confidence_check"},
-#         {"from": "confidence_check", "to": "mermaid_designer", "condition": "understanding_result.confidence >= 0.8"},
-#         {"from": "confidence_check", "to": "user_interface_clarification", "condition": "understanding_result.confidence >= 0.6 AND understanding_result.confidence < 0.8"},
-#         {"from": "confidence_check", "to": "user_interface_more_info", "condition": "understanding_result.confidence < 0.6"},
-#         {"from": "mermaid_designer", "to": "user_interface_present_design"},
-#         {"from": "user_interface_present_design", "to": "approval_check", "condition": "user_response_received"},
-#         {"from": "approval_check", "to": "user_interface_approval_confirmed", "condition": "user_response == 'approve'"},
-#         {"from": "user_interface_approval_confirmed", "to": "user_interface_building_started"}
-#     ]
-# }
 
 VIBEFLOWS_FLOW = {
     "flow_name": "VibeFlows Core Experience Flow",
@@ -148,44 +55,62 @@ VIBEFLOWS_FLOW = {
         },
     ],
     "edges": [
-        {"from": "user_query_understanding", "to": "confidence_check"},
+        {"from": "user_query_understanding", "to": "mermaid_designer"},
         {"from": "mermaid_designer", "to": "ask_clarifying_questions"},
     ]
 }
 
-
 def save_message(chat_id: str, text: str, sender: str, message_type: str = "text", 
-                mermaid: str = None, json_data: dict = None):
-    """Save message to MongoDB."""
+                mermaid: str = None, json_data: dict = None) -> Dict[str, Any]:
+    """
+    Save message to MongoDB and return the message document (not ObjectId).
+    
+    Returns:
+        Dict containing the complete message document for streaming
+    """
     try:
         # Ensure required fields are not None/empty
         if not chat_id or not text or not sender:
             print(f"⚠️ WARNING - Invalid message data: chat_id={chat_id}, text={text}, sender={sender}")
             return None
         
-        # Use timezone-aware timestamp
-        from datetime import timezone, timedelta
-        # Adjust this offset to match your timezone (e.g., UTC-8 for PST, UTC+1 for CET)
-        user_timezone = timezone(timedelta(hours=-8))  # Change this to your timezone offset
+        # Use timezone-aware timestamp (PST/PDT)
+        user_timezone = timezone(timedelta(hours=-8))  # PST timezone
         current_time = datetime.now(user_timezone)
-            
+        
+        # Create message document
         message_doc = {
             "id": f"{sender}-{int(current_time.timestamp() * 1000)}",
             "chatId": chat_id,
             "text": text,
-            "mermaid": mermaid,
             "sender": sender,
             "timestamp": current_time,
-            "type": message_type,
-            "json": json_data
+            "type": message_type
         }
         
+        # Add optional fields only if they exist
+        if mermaid:
+            message_doc["mermaid"] = mermaid
+        if json_data:
+            message_doc["json"] = json_data
+        
         print(f"🔍 DEBUG - Saving message: {message_doc}")
-        result = messages_collection.insert_one(message_doc)
-        return result.inserted_id
+        
+        # Save to MongoDB
+        result = messages_collection.insert_one(message_doc.copy())  # Use copy to preserve original
+        
+        # Convert timestamp to ISO string for JSON serialization
+        message_doc["timestamp"] = current_time.isoformat()
+        
+        # Remove MongoDB's _id from the returned document since we have our own id
+        if "_id" in message_doc:
+            del message_doc["_id"]
+        
+        print(f"✅ Message saved with ID: {result.inserted_id}")
+        return message_doc
         
     except Exception as e:
-        print(f"Error saving message: {e}")
+        print(f"❌ Error saving message: {e}")
         return None
 
 def get_user_data(user_id: str) -> Dict[str, Any]:
@@ -338,12 +263,13 @@ def evaluate_condition(condition: str, context: Dict[str, Any]) -> bool:
         print(f"Error evaluating condition '{condition}': {e}")
         return False
 
-def execute_flow(flow: Dict[str, Any], context: Dict[str, Any]) -> str:
-    """Execute the flow starting from entry point."""
+async def execute_flow(flow: Dict[str, Any], context: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Execute the flow starting from entry point and return all messages as a list."""
     
     current_node_id = flow["entry_point"]
     max_iterations = 10
     iteration = 0
+    responses = []
     
     # Get available agents from flow
     available_agents = get_available_agents_from_flow(flow)
@@ -371,38 +297,52 @@ def execute_flow(flow: Dict[str, Any], context: Dict[str, Any]) -> str:
             
             if "error" in agent_result:
                 print(f"❌ Agent error: {agent_result['error']}")
+                error_doc = save_message(
+                    context["chat_id"],
+                    f"Error in {agent_name}: {agent_result['error']}",
+                    "ai",
+                    "simple_text"
+                )
+                if error_doc:
+                    responses.append(error_doc)
                 break
             
             # Update context with agent results
             context.update(agent_result)
             
-            # Save agent results to database
+            # Save and collect agent results to database
             if "understanding_result" in agent_result:
-                save_message(
+                understanding_doc = save_message(
                     context["chat_id"],
                     "Requirements analysis completed",
                     "ai",
                     "user_understanding_json",
                     json_data=agent_result["understanding_result"]
                 )
+                if understanding_doc:
+                    responses.append(understanding_doc)
             
             if "mermaid_diagram" in agent_result:
-                save_message(
+                mermaid_doc = save_message(
                     context["chat_id"],
                     "This is a design for workflow. Please let us know more details so we update the design and build you a workflow to solve your specific task.",
                     "ai",
                     "mermaid",
                     mermaid=agent_result["mermaid_diagram"]
                 )
+                if mermaid_doc:
+                    responses.append(mermaid_doc)
             
             if "user_response_text" in agent_result:
                 print(f"🔍 DEBUG - Saving user response: {agent_result['user_response_text']}")
-                save_message(
+                response_doc = save_message(
                     context["chat_id"],
                     agent_result["user_response_text"],
                     "ai",
                     "simple_text"
                 )
+                if response_doc:
+                    responses.append(response_doc)
         
         elif current_node["type"] == "condition":
             agent_name = current_node["agent_name"]
@@ -465,17 +405,17 @@ def execute_flow(flow: Dict[str, Any], context: Dict[str, Any]) -> str:
                         print(f"⚠️ Could not find node for agent: {next_agent_name}")
                         break
         
-        # Check if agent needs user response - break loop to wait
-        if (current_node.get("metadata", {}).get("requires_user_response") or
-            current_node.get("metadata", {}).get("awaits_user_response") or
-            current_node.get("action") in ["ask_clarifying_questions", "request_more_information", "present_design_for_approval"]):
-            print("⏳ Waiting for user response...")
-            break
+        # # Check if agent needs user response - break loop to wait
+        # if (current_node.get("metadata", {}).get("requires_user_response") or
+        #     current_node.get("metadata", {}).get("awaits_user_response") or
+        #     current_node.get("action") in ["ask_clarifying_questions", "request_more_information", "present_design_for_approval"]):
+        #     print("⏳ Waiting for user response...")
+        #     break
         
-        # Check if this is a final state
-        if current_node.get("metadata", {}).get("final_success_state"):
-            print("✅ Flow completed successfully!")
-            break
+        # # Check if this is a final state
+        # if current_node.get("metadata", {}).get("final_success_state"):
+        #     print("✅ Flow completed successfully!")
+        #     break
         
         # Get next nodes based on edges (fallback to original flow logic)
         next_nodes = get_next_nodes(flow, current_node_id)
@@ -499,8 +439,7 @@ def execute_flow(flow: Dict[str, Any], context: Dict[str, Any]) -> str:
         current_node_id = next_node_id
         iteration += 1
     
-    # Return final response
-    return context.get("user_response_text", "Process completed successfully!")
+    return responses
 
 def get_last_messages(chat_id: str) -> Dict[str, Any]:
     """Get the last relevant messages from the chat."""
@@ -540,15 +479,15 @@ def get_last_messages(chat_id: str) -> Dict[str, Any]:
             "last_ai_response": None
         }
 
-async def run_flow(user_query: Dict[str, Any]) -> AsyncGenerator[Dict[str, Any], None]:
+async def run_flow(user_query: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
-    Main entry point: Execute the flow with user query and stream responses.
+    Main entry point: Execute the complete workflow with user query and return all responses.
     
     Args:
         user_query: Message document with chatId, text, sender_id, etc.
         
-    Yields:
-        Dict containing response data and type
+    Returns:
+        List of response documents
     """
     
     # Get required fields
@@ -556,99 +495,60 @@ async def run_flow(user_query: Dict[str, Any]) -> AsyncGenerator[Dict[str, Any],
     user_message = user_query.get("text")
     
     if not chat_id:
-        yield {
+        return [{
             "type": "error",
-            "text": "Error: chatId required in message document"
-        }
-        return
+            "text": "Error: chatId required in message document",
+            "id": f"error-{int(datetime.now().timestamp() * 1000)}",
+            "chatId": chat_id or "unknown",
+            "sender": "system",
+            "timestamp": datetime.now(timezone(timedelta(hours=-8))).isoformat()
+        }]
 
+    if not user_message:
+        return [{
+            "type": "error", 
+            "text": "Error: text required in message document",
+            "id": f"error-{int(datetime.now().timestamp() * 1000)}",
+            "chatId": chat_id,
+            "sender": "system",
+            "timestamp": datetime.now(timezone(timedelta(hours=-8))).isoformat()
+        }]
     
-    # Get last relevant messages
+    # Get last relevant messages for context
     last_messages = get_last_messages(chat_id)
+    
+    # Get all chat messages for LLM context
+    all_messages = get_chat_messages(chat_id)
+    llm_messages = convert_messages_to_llm_format(all_messages)
+    # Add the current user message
+    llm_messages.append({"role": "user", "content": user_message})
     
     # Initialize execution context
     context = {
         "chat_id": chat_id,
         "user_message": user_message,
+        "llm_messages": llm_messages,
         "last_mermaid": last_messages["last_mermaid"],
         "last_understanding": last_messages["last_understanding"],
         "last_ai_response": last_messages["last_ai_response"],
         "understanding_result": None,
         "mermaid_diagram": None,
         "user_response": None,
+        "user_name": "User",  # Default user name
         "conversation_state": "processing"
     }
     
     try:
-        # First, get user understanding
-        understanding_result = get_user_understanding([{"role": "user", "content": user_message}])
-        if isinstance(understanding_result, str):
-            try:
-                understanding_result = json.loads(understanding_result.replace("```json", "").replace("```", ""))
-            except json.JSONDecodeError as e:
-                print(f"Error parsing understanding result: {e}")
-                error_doc = save_message(
-                    chat_id,
-                    "Error processing your request. Please try again.",
-                    "ai",
-                    "simple_text"
-                )
-                if error_doc:
-                    yield error_doc
-                return
+        print(f"🚀 Starting workflow execution for chat: {chat_id}")
+        print(f"📝 User message: {user_message}")
         
-        context["understanding_result"] = understanding_result
-        
-        # Save and yield understanding result
-        understanding_doc = save_message(
-            chat_id,
-            "This is our understanding analysis. Please let us know if you have any questions or feedback.",
-            "ai",
-            "user_understanding_json",
-            json_data=understanding_result
-        )
-        if understanding_doc:
-            yield understanding_doc
-        
-        # Generate and yield mermaid diagram
-        mermaid_diagram = create_mermaid_diagram(understanding_result)
-        context["mermaid_diagram"] = mermaid_diagram
-        
-        mermaid_doc = save_message(
-            chat_id,
-            "This is a design for workflow. Please let us know more details so we update the design and build you a workflow to solve your specific task.",
-            "ai",
-            "mermaid",
-            mermaid=mermaid_diagram
-        )
-        if mermaid_doc:
-            yield mermaid_doc
-        
-        # Generate and yield user interface response
-        interface_context = {
-            "understanding": understanding_result,
-            "mermaid_diagram": mermaid_diagram,
-            "user_name": user_name,
-            "chat_id": chat_id,
-            "last_mermaid": last_messages["last_mermaid"],
-            "last_understanding": last_messages["last_understanding"],
-            "last_ai_response": last_messages["last_ai_response"],
-            "action": "ask_clarifying_questions"
-        }
-        
-        final_response = generate_user_response(
-            [{"role": "user", "content": user_message}],
-            interface_context
-        )
-        
-        # Save and yield the final response
-        final_doc = save_message(chat_id, final_response, "ai", "simple_text")
-        if final_doc:
-            yield final_doc
+        # Execute the complete flow and get all responses
+        responses = await execute_flow(VIBEFLOWS_FLOW, context)
+        print(f"🎉 Workflow execution completed for chat: {chat_id}")
+        return responses
         
     except Exception as e:
         error_response = f"I apologize, but I encountered an error: {str(e)}"
-        print(f"🔍 DEBUG - Error response: {error_response}")
+        print(f"❌ Error in run_flow: {e}")
         error_doc = save_message(chat_id, error_response, "ai", "simple_text")
-        if error_doc:
-            yield error_doc
+        return [error_doc] if error_doc else []
