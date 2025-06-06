@@ -28,6 +28,99 @@ messages_collection = db["messages"]
 users_collection = db["users"]
 
 # Keep the original flow structure
+# VIBEFLOWS_FLOW = {
+#     "flow_name": "VibeFlows Core Experience Flow",
+#     "entry_point": "user_query_understanding",
+#     "nodes": [
+#         {
+#             "id": "user_query_understanding",
+#             "name": "🔍 Understanding Agent",
+#             "type": "agent",
+#             "agent_name": "user_query_understanding",
+#             "metadata": {"entry_point_node": True}
+#         },
+#         {
+#             "id": "confidence_check",
+#             "name": "🎯 Confidence Check",
+#             "type": "condition",
+#             "agent_name": "next_agent",
+#             "conditions": [
+#                 {"condition": "understanding_result.confidence >= 0.8", "next_node": "mermaid_designer"},
+#                 {"condition": "understanding_result.confidence >= 0.6 AND understanding_result.confidence < 0.8", "next_node": "user_interface_clarification"},
+#                 {"condition": "understanding_result.confidence < 0.6", "next_node": "user_interface_more_info"}
+#             ],
+#             "metadata": {"decision_node": True}
+#         },
+#         {
+#             "id": "mermaid_designer",
+#             "name": "🎨 Mermaid Designer Agent",
+#             "type": "agent",
+#             "agent_name": "mermaid_designer"
+#         },
+#         {
+#             "id": "user_interface_present_design",
+#             "name": "👀 Present Design",
+#             "type": "agent",
+#             "agent_name": "user_interface",
+#             "action": "present_design_for_approval",
+#             "metadata": {"awaits_user_response": True}
+#         },
+#         {
+#             "id": "approval_check",
+#             "name": "✅ Approval Check",
+#             "type": "condition",
+#             "agent_name": "next_agent",
+#             "conditions": [
+#                 {"condition": "user_response == 'approve'", "next_node": "user_interface_approval_confirmed"},
+#                 {"condition": "user_response == 'request_changes'", "next_node": "mermaid_designer_update"},
+#                 {"condition": "user_response == 'ask_questions'", "next_node": "user_interface_answer_questions"}
+#             ],
+#             "metadata": {"decision_node": True, "user_input_required": True}
+#         },
+#         {
+#             "id": "user_interface_approval_confirmed",
+#             "name": "🎉 Design Approved",
+#             "type": "agent",
+#             "agent_name": "user_interface",
+#             "action": "confirm_design_approval"
+#         },
+#         {
+#             "id": "user_interface_building_started",
+#             "name": "🚀 Building Started Notification",
+#             "type": "agent",
+#             "agent_name": "user_interface",
+#             "action": "notify_building_started",
+#             "metadata": {"final_success_state": True}
+#         },
+#         {
+#             "id": "user_interface_clarification",
+#             "name": "❓ Ask Clarification",
+#             "type": "agent",
+#             "agent_name": "user_interface",
+#             "action": "ask_clarifying_questions",
+#             "metadata": {"requires_user_response": True}
+#         },
+#         {
+#             "id": "user_interface_more_info",
+#             "name": "🔄 Request More Info",
+#             "type": "agent",
+#             "agent_name": "user_interface",
+#             "action": "request_more_information",
+#             "metadata": {"requires_user_response": True}
+#         }
+#     ],
+#     "edges": [
+#         {"from": "user_query_understanding", "to": "confidence_check"},
+#         {"from": "confidence_check", "to": "mermaid_designer", "condition": "understanding_result.confidence >= 0.8"},
+#         {"from": "confidence_check", "to": "user_interface_clarification", "condition": "understanding_result.confidence >= 0.6 AND understanding_result.confidence < 0.8"},
+#         {"from": "confidence_check", "to": "user_interface_more_info", "condition": "understanding_result.confidence < 0.6"},
+#         {"from": "mermaid_designer", "to": "user_interface_present_design"},
+#         {"from": "user_interface_present_design", "to": "approval_check", "condition": "user_response_received"},
+#         {"from": "approval_check", "to": "user_interface_approval_confirmed", "condition": "user_response == 'approve'"},
+#         {"from": "user_interface_approval_confirmed", "to": "user_interface_building_started"}
+#     ]
+# }
+
 VIBEFLOWS_FLOW = {
     "flow_name": "VibeFlows Core Experience Flow",
     "entry_point": "user_query_understanding",
@@ -40,86 +133,26 @@ VIBEFLOWS_FLOW = {
             "metadata": {"entry_point_node": True}
         },
         {
-            "id": "confidence_check",
-            "name": "🎯 Confidence Check",
-            "type": "condition",
-            "agent_name": "next_agent",
-            "conditions": [
-                {"condition": "understanding_result.confidence >= 0.8", "next_node": "mermaid_designer"},
-                {"condition": "understanding_result.confidence >= 0.6 AND understanding_result.confidence < 0.8", "next_node": "user_interface_clarification"},
-                {"condition": "understanding_result.confidence < 0.6", "next_node": "user_interface_more_info"}
-            ],
-            "metadata": {"decision_node": True}
-        },
-        {
             "id": "mermaid_designer",
             "name": "🎨 Mermaid Designer Agent",
             "type": "agent",
             "agent_name": "mermaid_designer"
         },
         {
-            "id": "user_interface_present_design",
-            "name": "👀 Present Design",
-            "type": "agent",
-            "agent_name": "user_interface",
-            "action": "present_design_for_approval",
-            "metadata": {"awaits_user_response": True}
-        },
-        {
-            "id": "approval_check",
-            "name": "✅ Approval Check",
-            "type": "condition",
-            "agent_name": "next_agent",
-            "conditions": [
-                {"condition": "user_response == 'approve'", "next_node": "user_interface_approval_confirmed"},
-                {"condition": "user_response == 'request_changes'", "next_node": "mermaid_designer_update"},
-                {"condition": "user_response == 'ask_questions'", "next_node": "user_interface_answer_questions"}
-            ],
-            "metadata": {"decision_node": True, "user_input_required": True}
-        },
-        {
-            "id": "user_interface_approval_confirmed",
-            "name": "🎉 Design Approved",
-            "type": "agent",
-            "agent_name": "user_interface",
-            "action": "confirm_design_approval"
-        },
-        {
-            "id": "user_interface_building_started",
-            "name": "🚀 Building Started Notification",
-            "type": "agent",
-            "agent_name": "user_interface",
-            "action": "notify_building_started",
-            "metadata": {"final_success_state": True}
-        },
-        {
-            "id": "user_interface_clarification",
-            "name": "❓ Ask Clarification",
+            "id": "ask_clarifying_questions",
+            "name": "Generate response to user based on the understanding and ask clarification questions.",
             "type": "agent",
             "agent_name": "user_interface",
             "action": "ask_clarifying_questions",
             "metadata": {"requires_user_response": True}
         },
-        {
-            "id": "user_interface_more_info",
-            "name": "🔄 Request More Info",
-            "type": "agent",
-            "agent_name": "user_interface",
-            "action": "request_more_information",
-            "metadata": {"requires_user_response": True}
-        }
     ],
     "edges": [
         {"from": "user_query_understanding", "to": "confidence_check"},
-        {"from": "confidence_check", "to": "mermaid_designer", "condition": "understanding_result.confidence >= 0.8"},
-        {"from": "confidence_check", "to": "user_interface_clarification", "condition": "understanding_result.confidence >= 0.6 AND understanding_result.confidence < 0.8"},
-        {"from": "confidence_check", "to": "user_interface_more_info", "condition": "understanding_result.confidence < 0.6"},
-        {"from": "mermaid_designer", "to": "user_interface_present_design"},
-        {"from": "user_interface_present_design", "to": "approval_check", "condition": "user_response_received"},
-        {"from": "approval_check", "to": "user_interface_approval_confirmed", "condition": "user_response == 'approve'"},
-        {"from": "user_interface_approval_confirmed", "to": "user_interface_building_started"}
+        {"from": "mermaid_designer", "to": "ask_clarifying_questions"},
     ]
 }
+
 
 def save_message(chat_id: str, text: str, sender: str, message_type: str = "text", 
                 mermaid: str = None, json_data: dict = None):
@@ -180,10 +213,16 @@ def convert_messages_to_llm_format(messages: List[Dict[str, Any]]) -> List[Dict[
     """Convert database messages to LLM format."""
     llm_messages = []
     for msg in messages:
+        # Handle user messages
         if msg.get("sender") == "user":
             llm_messages.append({"role": "user", "content": msg["text"]})
-        elif msg.get("sender") == "ai" and msg.get("type") in ["simple_text", "response"]:
+        # Handle AI messages
+        elif msg.get("sender") == "ai":
+            # Include all AI messages regardless of type
             llm_messages.append({"role": "assistant", "content": msg["text"]})
+            # If there's JSON data, include it as a separate message
+            if msg.get("json"):
+                llm_messages.append({"role": "assistant", "content": json.dumps(msg["json"])})
     return llm_messages
 
 def get_node_by_id(flow: Dict[str, Any], node_id: str) -> Dict[str, Any]:
@@ -225,15 +264,7 @@ def execute_agent(agent_name: str, context: Dict[str, Any], action: str = None) 
             if isinstance(result, str):
                 try:
                     # Clean markdown code blocks if present
-                    cleaned_result = result.strip()
-                    if cleaned_result.startswith("```json"):
-                        cleaned_result = cleaned_result[7:]
-                    if cleaned_result.startswith("```"):
-                        cleaned_result = cleaned_result[3:]
-                    if cleaned_result.endswith("```"):
-                        cleaned_result = cleaned_result[:-3]
-                    cleaned_result = cleaned_result.strip()
-                    
+                    cleaned_result = result.replace("```json", "").replace("```", "")
                     result = json.loads(cleaned_result)
                 except json.JSONDecodeError as e:
                     print(f"Error parsing understanding result: {e}")
@@ -358,7 +389,7 @@ def execute_flow(flow: Dict[str, Any], context: Dict[str, Any]) -> str:
             if "mermaid_diagram" in agent_result:
                 save_message(
                     context["chat_id"],
-                    "Workflow design created",
+                    "This is a design for workflow. Please let us know more details so we update the design and build you a workflow to solve your specific task.",
                     "ai",
                     "mermaid",
                     mermaid=agent_result["mermaid_diagram"]
@@ -471,6 +502,44 @@ def execute_flow(flow: Dict[str, Any], context: Dict[str, Any]) -> str:
     # Return final response
     return context.get("user_response_text", "Process completed successfully!")
 
+def get_last_messages(chat_id: str) -> Dict[str, Any]:
+    """Get the last relevant messages from the chat."""
+    try:
+        # Get all messages sorted by timestamp
+        messages = list(
+            messages_collection
+            .find({"chatId": chat_id})
+            .sort("timestamp", -1)
+        )
+        
+        last_messages = {
+            "last_mermaid": None,
+            "last_understanding": None,
+            "last_ai_response": None
+        }
+        
+        for msg in messages:
+            if msg.get("sender") == "ai" or msg.get("sender") == "assistant":
+                if msg.get("type") == "mermaid" and not last_messages["last_mermaid"]:
+                    last_messages["last_mermaid"] = msg.get("mermaid")
+                elif msg.get("type") == "user_understanding_json" and not last_messages["last_understanding"]:
+                    last_messages["last_understanding"] = msg.get("json")
+                elif msg.get("type") == "simple_text" and not last_messages["last_ai_response"]:
+                    last_messages["last_ai_response"] = msg.get("text")
+            
+            # Break if we have all the messages we need
+            if all(last_messages.values()):
+                break
+                
+        return last_messages
+    except Exception as e:
+        print(f"Error getting last messages: {e}")
+        return {
+            "last_mermaid": None,
+            "last_understanding": None,
+            "last_ai_response": None
+        }
+
 def run_flow(user_query: Dict[str, Any]) -> str:
     """
     Main entry point: Execute the flow with user query.
@@ -494,29 +563,81 @@ def run_flow(user_query: Dict[str, Any]) -> str:
     user_data = get_user_data(sender_id) if sender_id else None
     user_name = user_data.get("name") if user_data else None
     
-    # Get conversation history
-    all_messages = get_chat_messages(chat_id)
-    llm_messages = convert_messages_to_llm_format(all_messages)
+    # Get last relevant messages
+    last_messages = get_last_messages(chat_id)
     
-    # Initialize execution context - let user understanding agent handle all intent detection
+    # Initialize execution context
     context = {
         "chat_id": chat_id,
         "sender_id": sender_id,
         "user_name": user_name,
         "user_message": user_message,
-        "llm_messages": llm_messages,
+        "last_mermaid": last_messages["last_mermaid"],
+        "last_understanding": last_messages["last_understanding"],
+        "last_ai_response": last_messages["last_ai_response"],
         "understanding_result": None,
         "mermaid_diagram": None,
-        "user_response": None,  # Let understanding agent determine this
+        "user_response": None,
         "conversation_state": "processing"
     }
     
     # Execute the flow
     try:
-        final_response = execute_flow(VIBEFLOWS_FLOW, context)
-        print(f"🔍 DEBUG - Final response: {final_response}")
-        print(f"🔍 DEBUG - Final response type: {type(final_response)}")
+        # First, get user understanding
+        understanding_result = get_user_understanding([{"role": "user", "content": user_message}])
+        if isinstance(understanding_result, str):
+            try:
+                understanding_result = json.loads(understanding_result.replace("```json", "").replace("```", ""))
+            except json.JSONDecodeError as e:
+                print(f"Error parsing understanding result: {e}")
+                return "Error processing your request. Please try again."
+        
+        context["understanding_result"] = understanding_result
+        
+        # Save understanding result
+        save_message(
+            chat_id,
+            "This is our understanding analysis. Please let us know if you have any questions or feedback.",
+            "ai",
+            "user_understanding_json",
+            json_data=understanding_result
+        )
+        
+        # Generate mermaid diagram
+        mermaid_diagram = create_mermaid_diagram(understanding_result)
+        context["mermaid_diagram"] = mermaid_diagram
+        
+        # Save mermaid diagram
+        save_message(
+            chat_id,
+            "This is a design for workflow. Please let us know more details so we update the design and build you a workflow to solve your specific task.",
+            "ai",
+            "mermaid",
+            mermaid=mermaid_diagram
+        )
+        
+        # Generate user interface response with only relevant context
+        interface_context = {
+            "understanding": understanding_result,
+            "mermaid_diagram": mermaid_diagram,
+            "user_name": user_name,
+            "chat_id": chat_id,
+            "last_mermaid": last_messages["last_mermaid"],
+            "last_understanding": last_messages["last_understanding"],
+            "last_ai_response": last_messages["last_ai_response"],
+            "action": "ask_clarifying_questions"
+        }
+        
+        final_response = generate_user_response(
+            [{"role": "user", "content": user_message}],
+            interface_context
+        )
+        
+        # Save the response
+        save_message(chat_id, final_response, "ai", "simple_text")
+        
         return final_response
+        
     except Exception as e:
         error_response = f"I apologize, but I encountered an error: {str(e)}"
         print(f"🔍 DEBUG - Error response: {error_response}")

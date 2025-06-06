@@ -13,7 +13,7 @@ langchain>=0.0.300  # For agent orchestration
 google-cloud-aiplatform>=1.36.0  # For Google Cloud AI
 google-cloud-core>=2.3.0
 google-api-core>=2.15.0
-google-generativeai>=0.3.0  # For Google's Generative AI
+google-generativeai==0.1.0rc1  # For Google's Generative AI
 
 # Development and testing
 pytest>=7.4.0
@@ -37,5 +37,3 @@ pymongo>=4.9.0,<5.0.0  # Updated to be compatible with motor 3.7.1
 # FastAPI
 fastapi>=0.104.0
 uvicorn>=0.24.0
-fastapi==0.104.1
-motor>=3.7.1

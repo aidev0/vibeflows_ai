@@ -92,7 +92,6 @@ def run_inference(messages: list[dict], model_name: str) -> str:
                 max_tokens=max_tokens,
                 system=system_prompt if system_prompt else None,
                 messages=anthropic_messages,
-                temperature=0.7  # Add temperature to encourage more creative responses
             )
             
             print(f"Anthropic Response: {response}")
