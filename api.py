@@ -25,7 +25,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "https://vibeflows.app",
-        "https://vibeflows.vercel.app"
+        "https://vibeflows-c28a3602302a.herokuapp.com/"
     ],
     allow_credentials=True,
     allow_methods=["*"],
