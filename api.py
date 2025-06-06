@@ -12,12 +12,24 @@ app = FastAPI(
 )
 
 # Add CORS middleware
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["*"],  # Allow all origins
+#     allow_credentials=False,  # Changed to False since we're using wildcard origins
+#     allow_methods=["*"],  # Allows all methods
+#     allow_headers=["*"],  # Allows all headers
+# )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins
-    allow_credentials=False,  # Changed to False since we're using wildcard origins
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_origins=[
+        "http://localhost:3000",
+        "https://vibeflows.app",
+        "https://vibeflows.vercel.app"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 class UserQuery(BaseModel):
