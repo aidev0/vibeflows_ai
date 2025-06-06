@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Any, AsyncGenerator
 import asyncio
@@ -12,10 +13,29 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
+
+# Add error handling middleware
+@app.middleware("http")
+async def catch_exceptions_middleware(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"type": "error", "text": str(e)}
+        )
+
 class UserQuery(BaseModel):
     chatId: str
     text: str
-    sender_id: str
 
 class MessageResponse(BaseModel):
     """Response message format that will be streamed to the client."""
@@ -34,18 +54,16 @@ async def stream_flow_responses(user_query: dict) -> AsyncGenerator[str, None]:
     
     Each response will be a Server-Sent Event (SSE) with the following format:
     data: {"id": "ai-1234567890", "chatId": "chat123", "text": "Message text", ...}
-    
-    The response will be a MongoDB message document with the following fields:
-    - id: Unique message ID (format: "sender-timestamp")
-    - chatId: Chat identifier
-    - text: Message content
-    - mermaid: Optional mermaid diagram
-    - sender: Message sender ("ai" or "user")
-    - timestamp: ISO format timestamp in PST timezone
-    - type: Message type ("user_understanding_json", "mermaid", or "simple_text")
-    - json: Optional additional JSON data
     """
     try:
+        # Validate required fields
+        if not user_query.get("chatId"):
+            yield f"data: {json.dumps({'type': 'error', 'text': 'chatId is required'})}\n\n"
+            return
+        if not user_query.get("text"):
+            yield f"data: {json.dumps({'type': 'error', 'text': 'text is required'})}\n\n"
+            return
+
         # Convert to dict and run the workflow
         async for response in run_flow(user_query):
             # Format the SSE message
@@ -63,43 +81,22 @@ async def stream_flow_responses(user_query: dict) -> AsyncGenerator[str, None]:
 async def process_message(user_query: UserQuery):
     """
     Process a user message and stream responses from the VibeFlows workflow.
-    
-    The endpoint streams Server-Sent Events (SSE) containing MongoDB message documents.
-    Each message will have the following structure:
-    
-    ```json
-    {
-        "id": "ai-1234567890",
-        "chatId": "chat123",
-        "text": "Message content",
-        "mermaid": null,
-        "sender": "ai",
-        "timestamp": "2024-03-21T10:30:00-08:00",
-        "type": "simple_text",
-        "json": null
-    }
-    ```
-    
-    Message types:
-    - user_understanding_json: Contains analysis of user's request
-    - mermaid: Contains workflow diagram
-    - simple_text: Regular text response
-    
-    Args:
-        user_query: UserQuery object containing chatId, text, and sender_id
-        
-    Returns:
-        StreamingResponse: Server-Sent Events stream of AI responses
     """
-    return StreamingResponse(
-        stream_flow_responses(user_query.dict()),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
-        }
-    )
+    try:
+        return StreamingResponse(
+            stream_flow_responses(user_query.dict()),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"type": "error", "text": str(e)}
+        )
 
 @app.get("/")
 async def root():

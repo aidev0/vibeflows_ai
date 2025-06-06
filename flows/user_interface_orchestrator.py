@@ -554,7 +554,6 @@ async def run_flow(user_query: Dict[str, Any]) -> AsyncGenerator[Dict[str, Any],
     # Get required fields
     chat_id = user_query.get("chatId")
     user_message = user_query.get("text")
-    sender_id = user_query.get("sender_id")
     
     if not chat_id:
         yield {
@@ -562,10 +561,7 @@ async def run_flow(user_query: Dict[str, Any]) -> AsyncGenerator[Dict[str, Any],
             "text": "Error: chatId required in message document"
         }
         return
-    
-    # Get user data
-    user_data = get_user_data(sender_id) if sender_id else None
-    user_name = user_data.get("name") if user_data else None
+
     
     # Get last relevant messages
     last_messages = get_last_messages(chat_id)
@@ -573,8 +569,6 @@ async def run_flow(user_query: Dict[str, Any]) -> AsyncGenerator[Dict[str, Any],
     # Initialize execution context
     context = {
         "chat_id": chat_id,
-        "sender_id": sender_id,
-        "user_name": user_name,
         "user_message": user_message,
         "last_mermaid": last_messages["last_mermaid"],
         "last_understanding": last_messages["last_understanding"],
@@ -658,18 +652,3 @@ async def run_flow(user_query: Dict[str, Any]) -> AsyncGenerator[Dict[str, Any],
         error_doc = save_message(chat_id, error_response, "ai", "simple_text")
         if error_doc:
             yield error_doc
-
-if __name__ == "__main__":
-    # Test example
-    async def test_flow():
-        test_message = {
-            "chatId": "test_chat_123",
-            "text": "I want to automate lead generation",
-            "sender_id": "test_user_456"
-        }
-        
-        async for response in run_flow(test_message):
-            print(f"Response: {response}")
-    
-    import asyncio
-    asyncio.run(test_flow())
