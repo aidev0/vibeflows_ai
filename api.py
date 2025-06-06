@@ -15,7 +15,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allow all origins
-    allow_credentials=True,
+    allow_credentials=False,  # Changed to False since we're using wildcard origins
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
 )
@@ -30,25 +30,23 @@ async def process_message(user_query: UserQuery):
     Process a user message and run it through the VibeFlows workflow.
     """
     try:
+        print(f"Received message request: {user_query.dict()}")
         # Run the workflow and get responses
         responses = await run_flow(user_query.dict())
-        return JSONResponse(
-            content=responses,
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "POST, OPTIONS",
-                "Access-Control-Allow-Headers": "*"
-            }
-        )
+        print(f"Got responses from workflow: {responses}")
+        
+        if not responses:
+            return JSONResponse(
+                status_code=200,
+                content={"error": "No responses from workflow"}
+            )
+            
+        return JSONResponse(content=responses)
     except Exception as e:
+        print(f"Error processing message: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"error": str(e)},
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "POST, OPTIONS",
-                "Access-Control-Allow-Headers": "*"
-            }
+            content={"error": str(e)}
         )
 
 @app.get("/")
