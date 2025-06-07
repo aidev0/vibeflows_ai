@@ -84,40 +84,27 @@ INTEGRATIONS = []
 
 model_name = "claude-sonnet-4-20250514"
 
-def get_user_understanding(messages: List[Dict[str, Any]], model_name=model_name) -> Dict[str, Any]:
+def get_user_understanding(context, model_name=model_name) -> Dict[str, Any]:
     """
     Get user understanding from the input messages.
     """
     # Add system message at the start
-    full_messages = [{"role": "system", "content": SYSTEM}] + messages
-    
-    # attempt 3 times
-    for attempt in range(3):
-        try:
-            response = run_inference(full_messages, model_name=model_name)
-            
-            # Clean the response - remove markdown code blocks if present
-            cleaned_response = response.replace("```json", "").replace("```", "").strip()
-            
-            # Try to parse as JSON
-            try:
-                result = json.loads(cleaned_response)
-                # Validate required fields
-                required_fields = ["project_type", "summary", "confidence", "requirements"]
-                if all(field in result for field in required_fields):
-                    return result
-                else:
-                    error_message = f"Response missing required fields. Please include: {', '.join(required_fields)}"
-                    full_messages.append({"role": "assistant", "content": error_message})
-                    continue
-            except json.JSONDecodeError as e:
-                error_message = f"Your response could not be parsed as JSON. Please provide valid JSON format only. Error: {e}"
-                full_messages.append({"role": "assistant", "content": error_message})
-                continue
-            
-        except Exception as e:
-            print(f"Error on attempt {attempt + 1}: {e}")
-            error_message = f"Error occurred while processing your request. Please try again. Error: {e}"
-            full_messages.append({"role": "assistant", "content": error_message})
-    
-    raise Exception("Failed to get user understanding after 3 attempts")
+    messages = [{"role": "system", "content": SYSTEM}]
+       # Add system message
+    messages = [{"role": "system", "content": SYSTEM}]
+
+    if "last_ai_response" in context:
+        messages.append({"role": "assistant", "content": str(context["last_ai_response"])})
+    if "last_understanding" in context:
+        messages.append({"role": "assistant", "content": str(context["last_understanding"])})
+    if "last_mermaid" in context:
+        messages.append({"role": "assistant", "content": str(context["last_mermaid"])})
+    if "user_message" in context:
+        messages.append({"role": "user", "content": str(context["user_message"])})  
+    try:
+        response = run_inference(messages, model_name=model_name)
+        response.replace("```json", "").replace("```", "").strip()
+        return response
+    except Exception as e:
+        return f"I apologize, but I'm experiencing some technical difficulties. Please try again in a moment. (Error: {str(e)})"
+   

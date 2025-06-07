@@ -36,6 +36,7 @@ VIBEFLOWS_FLOW = {
             "id": "user_query_understanding",
             "name": "🔍 Understanding Agent",
             "type": "agent",
+            "action": "Analyze user query and provide understanding",
             "agent_name": "user_query_understanding",
             "metadata": {"entry_point_node": True}
         },
@@ -43,20 +44,21 @@ VIBEFLOWS_FLOW = {
             "id": "mermaid_designer",
             "name": "🎨 Mermaid Designer Agent",
             "type": "agent",
+            "action": "Design a mermaid diagram based on the understanding",
             "agent_name": "mermaid_designer"
         },
         {
-            "id": "ask_clarifying_questions",
-            "name": "Generate response to user based on the understanding and ask clarification questions.",
+            "id": "user_communication_agent",
+            "name": "💬 User Communication Agent",
+            "action": "Generate response to user based on our understanding & mermaid diagram and ask clarification questions if needed.",
             "type": "agent",
             "agent_name": "user_interface",
-            "action": "ask_clarifying_questions",
             "metadata": {"requires_user_response": True}
         },
     ],
     "edges": [
         {"from": "user_query_understanding", "to": "mermaid_designer"},
-        {"from": "mermaid_designer", "to": "ask_clarifying_questions"},
+        {"from": "mermaid_designer", "to": "user_communication_agent"},
     ]
 }
 
@@ -144,10 +146,13 @@ def convert_messages_to_llm_format(messages: List[Dict[str, Any]]) -> List[Dict[
         # Handle AI messages
         elif msg.get("sender") == "ai":
             # Include all AI messages regardless of type
-            llm_messages.append({"role": "assistant", "content": msg["text"]})
-            # If there's JSON data, include it as a separate message
-            if msg.get("json"):
-                llm_messages.append({"role": "assistant", "content": json.dumps(msg["json"])})
+            if msg["type"] == "mermaid" and msg["mermaid"]:
+                content = "DECRIPTION" + "\n" + msg["text"] + "MERMAID FLOWCHART:\n" + str(msg["mermaid"])
+            elif "json" in msg["type"]:
+                content = "DESCRIPTION:\n" + msg["text"] + "\nJSON DATA:\n" + json.dumps(msg["json"])
+            else:
+                content = msg["text"]
+            llm_messages.append({"role": "assistant", "content": content})
     return llm_messages
 
 def get_node_by_id(flow: Dict[str, Any], node_id: str) -> Dict[str, Any]:
@@ -183,7 +188,7 @@ def execute_agent(agent_name: str, context: Dict[str, Any], action: str = None) 
     
     try:
         if agent_name == "user_query_understanding":
-            result = get_user_understanding(context["llm_messages"])
+            result = get_user_understanding(context)
             
             # If result is a string (JSON), parse it
             if isinstance(result, str):
@@ -191,6 +196,7 @@ def execute_agent(agent_name: str, context: Dict[str, Any], action: str = None) 
                     # Clean markdown code blocks if present
                     cleaned_result = result.replace("```json", "").replace("```", "")
                     result = json.loads(cleaned_result)
+                    print(f"🔍 DEBUG - Result of {agent_name}\n: {result}")
                 except json.JSONDecodeError as e:
                     print(f"Error parsing understanding result: {e}")
                     return {"error": f"Failed to parse understanding result: {e}"}
@@ -198,23 +204,11 @@ def execute_agent(agent_name: str, context: Dict[str, Any], action: str = None) 
             return {"understanding_result": result}
         
         elif agent_name == "mermaid_designer":
-            understanding_result = context.get("understanding_result")
-            if understanding_result:
-                mermaid_diagram = create_mermaid_diagram(understanding_result)
-                return {"mermaid_diagram": mermaid_diagram}
-            else:
-                return {"error": "No understanding_result available for mermaid_designer"}
+            mermaid_diagram = create_mermaid_diagram(context)
+            return {"mermaid_diagram": mermaid_diagram}
         
         elif agent_name == "user_interface":
-            llm_messages = context["llm_messages"]
-            interface_context = {
-                "understanding": context.get("understanding_result"),
-                "mermaid_diagram": context.get("mermaid_diagram"),
-                "user_name": context.get("user_name"),
-                "chat_id": context.get("chat_id"),
-                "action": action or "general_response"
-            }
-            response = generate_user_response(llm_messages, interface_context)
+            response = generate_user_response(context)
             return {"user_response_text": response}
         
         else:
@@ -222,46 +216,6 @@ def execute_agent(agent_name: str, context: Dict[str, Any], action: str = None) 
     
     except Exception as e:
         return {"error": f"Agent {agent_name} failed: {str(e)}"}
-
-def build_routing_context(context: Dict[str, Any]) -> Dict[str, Any]:
-    """Build context for next_agent router."""
-    understanding_result = context.get("understanding_result")
-    
-    # If understanding_result is a string (JSON), try to parse it
-    if isinstance(understanding_result, str):
-        try:
-            import json
-            understanding_result = json.loads(understanding_result)
-        except:
-            understanding_result = None
-    
-    return {
-        "understanding_result": understanding_result,
-        "mermaid_diagram": context.get("mermaid_diagram"),
-        "user_response": context.get("user_response"),
-        "conversation_state": context.get("conversation_state", "processing")
-    }
-
-def evaluate_condition(condition: str, context: Dict[str, Any]) -> bool:
-    """Evaluate a condition string against the context."""
-    if not condition:
-        return True
-    
-    try:
-        # Simple condition evaluation
-        understanding_result = context.get("understanding_result", {})
-        user_response = context.get("user_response", "")
-        
-        # Replace variables in condition
-        condition = condition.replace("understanding_result.confidence", str(understanding_result.get("confidence", 0)))
-        condition = condition.replace("user_response", f"'{user_response}'")
-        condition = condition.replace("AND", "and")
-        
-        # Evaluate the condition
-        return eval(condition)
-    except Exception as e:
-        print(f"Error evaluating condition '{condition}': {e}")
-        return False
 
 async def execute_flow(flow: Dict[str, Any], context: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Execute the flow starting from entry point and return all messages as a list."""
@@ -271,19 +225,17 @@ async def execute_flow(flow: Dict[str, Any], context: Dict[str, Any]) -> List[Di
     iteration = 0
     responses = []
     
-    # Get available agents from flow
-    available_agents = get_available_agents_from_flow(flow)
-    
     while iteration < max_iterations:
         print(f"🔄 Iteration {iteration + 1}: Processing node '{current_node_id}'")
-        
-        # Get current node
+
         current_node = get_node_by_id(flow, current_node_id)
         if not current_node:
             print(f"❌ Node '{current_node_id}' not found")
             break
-        
-        # Execute current node
+
+        next_nodes = get_next_nodes(flow, current_node_id)
+        next_node_id = next_nodes[0]["node"]["id"] if next_nodes else None
+
         if current_node["type"] == "agent":
             agent_name = current_node["agent_name"]
             action = current_node.get("action")
@@ -292,7 +244,6 @@ async def execute_flow(flow: Dict[str, Any], context: Dict[str, Any]) -> List[Di
             if action:
                 print(f"   Action: {action}")
             
-            # Execute the agent
             agent_result = execute_agent(agent_name, context, action)
             
             if "error" in agent_result:
@@ -307,10 +258,6 @@ async def execute_flow(flow: Dict[str, Any], context: Dict[str, Any]) -> List[Di
                     responses.append(error_doc)
                 break
             
-            # Update context with agent results
-            context.update(agent_result)
-            
-            # Save and collect agent results to database
             if "understanding_result" in agent_result:
                 understanding_doc = save_message(
                     context["chat_id"],
@@ -344,101 +291,13 @@ async def execute_flow(flow: Dict[str, Any], context: Dict[str, Any]) -> List[Di
                 if response_doc:
                     responses.append(response_doc)
         
-        elif current_node["type"] == "condition":
-            agent_name = current_node["agent_name"]
-            
-            print(f"🎯 Executing condition router: {agent_name}")
-            
-            # For next_agent routing - use the updated function signature
-            if agent_name == "next_agent":
-                flow_conditions = current_node.get("conditions", [])
-                routing_context = build_routing_context(context)
-                
-                # Use the updated next_agent router
-                routing_result = determine_next_agent(
-                    flow_conditions=flow_conditions,
-                    available_agents=available_agents,
-                    context=routing_context
-                )
-                
-                if "next_agent" in routing_result:
-                    next_agent_name = routing_result["next_agent"]
-                    
-                    # Map agent names to actual node IDs based on flow structure
-                    next_node_id = None
-                    
-                    # Special mappings based on current node and decision
-                    if current_node_id == "confidence_check":
-                        if next_agent_name == "user_interface":
-                            # Low confidence - need more info
-                            confidence = context.get("understanding_result", {}).get("confidence", 0)
-                            if confidence < 0.6:
-                                next_node_id = "user_interface_more_info"
-                            else:
-                                next_node_id = "user_interface_clarification"
-                        elif next_agent_name == "mermaid_designer":
-                            next_node_id = "mermaid_designer"
-                    
-                    elif current_node_id == "approval_check":
-                        if next_agent_name == "user_interface":
-                            user_response = context.get("user_response")
-                            if user_response == "approve":
-                                next_node_id = "user_interface_approval_confirmed"
-                            else:
-                                # Default to asking questions
-                                next_node_id = "user_interface_answer_questions"
-                        elif next_agent_name == "mermaid_designer":
-                            next_node_id = "mermaid_designer_update"
-                    
-                    # Generic fallback - find any node with matching agent_name
-                    if not next_node_id:
-                        for node in flow["nodes"]:
-                            if node.get("agent_name") == next_agent_name:
-                                next_node_id = node["id"]
-                                break
-                    
-                    if next_node_id:
-                        current_node_id = next_node_id
-                        iteration += 1
-                        continue
-                    else:
-                        print(f"⚠️ Could not find node for agent: {next_agent_name}")
-                        break
-        
-        # # Check if agent needs user response - break loop to wait
-        # if (current_node.get("metadata", {}).get("requires_user_response") or
-        #     current_node.get("metadata", {}).get("awaits_user_response") or
-        #     current_node.get("action") in ["ask_clarifying_questions", "request_more_information", "present_design_for_approval"]):
-        #     print("⏳ Waiting for user response...")
-        #     break
-        
-        # # Check if this is a final state
-        # if current_node.get("metadata", {}).get("final_success_state"):
-        #     print("✅ Flow completed successfully!")
-        #     break
-        
-        # Get next nodes based on edges (fallback to original flow logic)
-        next_nodes = get_next_nodes(flow, current_node_id)
-        
-        if not next_nodes:
+        if not next_node_id:
             print("🏁 No more nodes to process")
             break
-        
-        # Find the first matching condition
-        next_node_id = None
-        for next_info in next_nodes:
-            condition = next_info["condition"]
-            if evaluate_condition(condition, context):
-                next_node_id = next_info["node"]["id"]
-                break
-        
-        if not next_node_id:
-            # Take the first node if no conditions match
-            next_node_id = next_nodes[0]["node"]["id"]
-        
+
         current_node_id = next_node_id
         iteration += 1
-    
+
     return responses
 
 def get_last_messages(chat_id: str) -> Dict[str, Any]:
@@ -518,23 +377,20 @@ async def run_flow(user_query: Dict[str, Any]) -> List[Dict[str, Any]]:
     last_messages = get_last_messages(chat_id)
     
     # Get all chat messages for LLM context
-    all_messages = get_chat_messages(chat_id)
-    llm_messages = convert_messages_to_llm_format(all_messages)
+    # all_messages = get_chat_messages(chat_id)
+    # llm_messages = convert_messages_to_llm_format(all_messages)
     # Add the current user message
-    llm_messages.append({"role": "user", "content": user_message})
+    # llm_messages.append({"role": "user", "content": user_message})
     
     # Initialize execution context
     context = {
         "chat_id": chat_id,
         "user_message": user_message,
-        "llm_messages": llm_messages,
-        "last_mermaid": last_messages["last_mermaid"],
+        "last_mermaid": last_messages["last_mermaid"],  # last mermaid in chat db before edit, it is gonna be prev_mermaid after we make nw one.
         "last_understanding": last_messages["last_understanding"],
         "last_ai_response": last_messages["last_ai_response"],
-        "understanding_result": None,
-        "mermaid_diagram": None,
-        "user_response": None,
-        "user_name": "User",  # Default user name
+        "current_understanding": None,
+        "current_mermaid": None,
         "conversation_state": "processing"
     }
     
