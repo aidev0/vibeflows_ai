@@ -60,6 +60,7 @@ def generate_user_response(context: Dict[str, Any] = None, action: str = None, m
         messages.append({"role": "assistant", "content": str(context["current_understanding"])})
     if "current_mermaid" in context:
         messages.append({"role": "assistant", "content": str(context["current_mermaid"])})
+    messages.append({"role": "user", "content": "create a response based on user's latest messages and the context."})
     try:
         response = run_inference(messages, model_name=model_name)
         return response
