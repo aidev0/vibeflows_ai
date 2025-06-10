@@ -92,36 +92,62 @@ def save_message(chat_id: str, text: str, sender: str, message_type: str = "text
         # Create message document
         message_doc = {
             "id": f"{sender}-{int(current_time.timestamp() * 1000)}",
-            "chatId": chat_id,
-            "text": text,
-            "sender": sender,
+            "chatId": str(chat_id),  # Ensure string
+            "text": str(text),       # Ensure string
+            "sender": str(sender),   # Ensure string
             "timestamp": current_time,
-            "type": message_type
+            "type": str(message_type)  # Ensure string
         }
         
-        # Add optional fields only if they exist
+        # Add optional fields only if they exist and clean them
         if mermaid:
-            message_doc["mermaid"] = mermaid
+            message_doc["mermaid"] = str(mermaid)
         if json_data:
-            message_doc["json"] = json_data
+            # Ensure json_data is actually serializable
+            try:
+                json.dumps(json_data)
+                message_doc["json"] = json_data
+            except (TypeError, ValueError) as e:
+                print(f"⚠️ json_data not serializable, converting to string: {e}")
+                message_doc["json"] = str(json_data)
         
         print(f"🔍 DEBUG - Saving message: {message_doc}")
         
-        # Save to MongoDB
-        result = messages_collection.insert_one(message_doc.copy())  # Use copy to preserve original
+        # Create a copy for MongoDB (with datetime object)
+        db_doc = message_doc.copy()
         
-        # Convert timestamp to ISO string for JSON serialization
+        # Save to MongoDB
+        result = messages_collection.insert_one(db_doc)
+        
+        # Convert timestamp to ISO string for JSON serialization in the return value
         message_doc["timestamp"] = current_time.isoformat()
         
-        # Remove MongoDB's _id from the returned document since we have our own id
+        # Ensure no MongoDB ObjectId or other BSON types leak through
         if "_id" in message_doc:
             del message_doc["_id"]
+        
+        # Double-check serialization
+        try:
+            json.dumps(message_doc)
+        except Exception as e:
+            print(f"❌ Message doc not serializable: {e}")
+            # Fallback to basic message
+            return {
+                "id": f"{sender}-{int(current_time.timestamp() * 1000)}",
+                "chatId": str(chat_id),
+                "text": str(text),
+                "sender": str(sender),
+                "timestamp": current_time.isoformat(),
+                "type": str(message_type)
+            }
         
         print(f"✅ Message saved with ID: {result.inserted_id}")
         return message_doc
         
     except Exception as e:
         print(f"❌ Error saving message: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def get_user_data(user_id: str) -> Dict[str, Any]:
@@ -218,7 +244,11 @@ def execute_agent(agent_name: str, context: Dict[str, Any], action: str = None) 
         
         elif agent_name == "n8n_workflow_developer":
             response = create_n8n_workflow(context)
-            return {"n8n_workflow_json": response}
+            # Check if response is an error dict or workflow JSON
+            if isinstance(response, dict) and "error" in response:
+                return {"error": response["error"]}
+            else:
+                return {"n8n_workflow_json": response}
         
         elif agent_name == "user_interface":
             response = generate_user_response(context)
@@ -294,6 +324,18 @@ async def execute_flow(flow: Dict[str, Any], context: Dict[str, Any]) -> List[Di
                 if mermaid_doc:
                     responses.append(mermaid_doc)
                 context["current_mermaid"] = agent_result["mermaid_diagram"]
+            
+            if "n8n_workflow_json" in agent_result:
+                workflow_doc = save_message(
+                    context["chat_id"],
+                    "N8N workflow has been generated successfully. You can copy and paste this into your N8N instance or it may have been automatically created if you have N8N credentials configured.",
+                    "ai",
+                    "n8n_workflow_json",
+                    json_data=agent_result["n8n_workflow_json"]
+                )
+                if workflow_doc:
+                    responses.append(workflow_doc)
+                context["current_n8n_workflow"] = agent_result["n8n_workflow_json"]
             
             if "user_response_text" in agent_result:
                 print(f"🔍 DEBUG - Saving user response: {agent_result['user_response_text']}")
@@ -406,7 +448,7 @@ async def run_flow(user_query: Dict[str, Any]) -> List[Dict[str, Any]]:
     if not user_id:
         return [{
             "type": "error", 
-            "text": "Error: text required in message document",
+            "text": "Error: user_id required in message document",
             "id": f"error-{int(datetime.now().timestamp() * 1000)}",
             "chatId": chat_id,
             "sender": "ai",
