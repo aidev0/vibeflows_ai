@@ -35,6 +35,7 @@ app.add_middleware(
 class UserQuery(BaseModel):
     chatId: str
     text: str
+    user_id: str
 
 @app.post("/api/message")
 async def process_message(user_query: UserQuery):

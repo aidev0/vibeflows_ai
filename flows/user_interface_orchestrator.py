@@ -18,6 +18,7 @@ from agents.user_query_understanding import get_user_understanding
 from agents.user_interface import generate_user_response
 from agents.mermaid_designer import create_mermaid_diagram
 from agents.next_agent import determine_next_agent
+from agents.n8n_workflow_developer import create_n8n_workflow
 
 # Load environment variables
 load_dotenv()
@@ -48,6 +49,13 @@ VIBEFLOWS_FLOW = {
             "agent_name": "mermaid_designer"
         },
         {
+            "id": "n8n_workflow_developer",
+            "name": "🤖 N8N Workflow Developer Agent",
+            "type": "agent",
+            "action": "Develop N8N workflow based on the understanding and mermaid diagram.",
+            "agent_name": "n8n_workflow_developer"
+        },
+        {
             "id": "user_communication_agent",
             "name": "💬 User Communication Agent",
             "action": "Generate response to user based on our understanding & mermaid diagram and ask clarification questions if needed.",
@@ -58,7 +66,8 @@ VIBEFLOWS_FLOW = {
     ],
     "edges": [
         {"from": "user_query_understanding", "to": "mermaid_designer"},
-        {"from": "mermaid_designer", "to": "user_communication_agent"},
+        {"from": "mermaid_designer", "to": "n8n_workflow_developer"},
+        {"from": "n8n_workflow_developer", "to": "user_communication_agent"},
     ]
 }
 
@@ -207,6 +216,10 @@ def execute_agent(agent_name: str, context: Dict[str, Any], action: str = None) 
             mermaid_diagram = create_mermaid_diagram(context)
             return {"mermaid_diagram": mermaid_diagram}
         
+        elif agent_name == "n8n_workflow_developer":
+            response = create_n8n_workflow(context)
+            return {"n8n_workflow_json": response}
+        
         elif agent_name == "user_interface":
             response = generate_user_response(context)
             return {"user_response_text": response}
@@ -268,6 +281,7 @@ async def execute_flow(flow: Dict[str, Any], context: Dict[str, Any]) -> List[Di
                 )
                 if understanding_doc:
                     responses.append(understanding_doc)
+                context["current_understanding"] = agent_result["understanding_result"]
             
             if "mermaid_diagram" in agent_result:
                 mermaid_doc = save_message(
@@ -279,6 +293,7 @@ async def execute_flow(flow: Dict[str, Any], context: Dict[str, Any]) -> List[Di
                 )
                 if mermaid_doc:
                     responses.append(mermaid_doc)
+                context["current_mermaid"] = agent_result["mermaid_diagram"]
             
             if "user_response_text" in agent_result:
                 print(f"🔍 DEBUG - Saving user response: {agent_result['user_response_text']}")
@@ -300,8 +315,13 @@ async def execute_flow(flow: Dict[str, Any], context: Dict[str, Any]) -> List[Di
 
     return responses
 
-def get_last_messages(chat_id: str) -> Dict[str, Any]:
+def get_context(user_query) -> Dict[str, Any]:
     """Get the last relevant messages from the chat."""
+     # Get required fields
+    chat_id = user_query.get("chatId")
+    user_message = user_query.get("text")
+    user_id = user_query.get("user_id")
+    
     try:
         # Get all messages sorted by timestamp
         messages = list(
@@ -309,6 +329,19 @@ def get_last_messages(chat_id: str) -> Dict[str, Any]:
             .find({"chatId": chat_id})
             .sort("timestamp", -1)
         )
+
+        context = {
+                "chat_id": chat_id,
+                "user_id": user_id,
+                "user_message": user_message,
+                "last_mermaid": None,  # last mermaid in chat db before edit, it is gonna be prev_mermaid after we make nw one.
+                "last_understanding": None,
+                "last_ai_response": None,
+                "current_understanding": None,
+                "current_mermaid": None,
+                "conversation_state": "processing",
+                "last_n8n_workflow": None,
+                }
         
         last_messages = {
             "last_mermaid": None,
@@ -319,17 +352,14 @@ def get_last_messages(chat_id: str) -> Dict[str, Any]:
         for msg in messages:
             if msg.get("sender") == "ai" or msg.get("sender") == "assistant":
                 if msg.get("type") == "mermaid" and not last_messages["last_mermaid"]:
-                    last_messages["last_mermaid"] = msg.get("mermaid")
+                    context["last_mermaid"] = msg.get("mermaid")
                 elif msg.get("type") == "user_understanding_json" and not last_messages["last_understanding"]:
-                    last_messages["last_understanding"] = msg.get("json")
+                    context["last_understanding"] = msg.get("json")
                 elif msg.get("type") == "simple_text" and not last_messages["last_ai_response"]:
-                    last_messages["last_ai_response"] = msg.get("text")
-            
-            # Break if we have all the messages we need
-            if all(last_messages.values()):
-                break
-                
-        return last_messages
+                    context["last_ai_response"] = msg.get("text")
+                elif msg.get("type") == "n8n_workflow_json" and not last_messages["last_n8n_workflow"]:
+                    context["last_n8n_workflow"] = msg.get("json")
+        return context
     except Exception as e:
         print(f"Error getting last messages: {e}")
         return {
@@ -352,6 +382,7 @@ async def run_flow(user_query: Dict[str, Any]) -> List[Dict[str, Any]]:
     # Get required fields
     chat_id = user_query.get("chatId")
     user_message = user_query.get("text")
+    user_id = user_query.get("user_id")
     
     if not chat_id:
         return [{
@@ -359,7 +390,7 @@ async def run_flow(user_query: Dict[str, Any]) -> List[Dict[str, Any]]:
             "text": "Error: chatId required in message document",
             "id": f"error-{int(datetime.now().timestamp() * 1000)}",
             "chatId": chat_id or "unknown",
-            "sender": "system",
+            "sender": "ai",
             "timestamp": datetime.now(timezone(timedelta(hours=-8))).isoformat()
         }]
 
@@ -369,30 +400,21 @@ async def run_flow(user_query: Dict[str, Any]) -> List[Dict[str, Any]]:
             "text": "Error: text required in message document",
             "id": f"error-{int(datetime.now().timestamp() * 1000)}",
             "chatId": chat_id,
-            "sender": "system",
+            "sender": "ai",
+            "timestamp": datetime.now(timezone(timedelta(hours=-8))).isoformat()
+        }]
+    if not user_id:
+        return [{
+            "type": "error", 
+            "text": "Error: text required in message document",
+            "id": f"error-{int(datetime.now().timestamp() * 1000)}",
+            "chatId": chat_id,
+            "sender": "ai",
             "timestamp": datetime.now(timezone(timedelta(hours=-8))).isoformat()
         }]
     
     # Get last relevant messages for context
-    last_messages = get_last_messages(chat_id)
-    
-    # Get all chat messages for LLM context
-    # all_messages = get_chat_messages(chat_id)
-    # llm_messages = convert_messages_to_llm_format(all_messages)
-    # Add the current user message
-    # llm_messages.append({"role": "user", "content": user_message})
-    
-    # Initialize execution context
-    context = {
-        "chat_id": chat_id,
-        "user_message": user_message,
-        "last_mermaid": last_messages["last_mermaid"],  # last mermaid in chat db before edit, it is gonna be prev_mermaid after we make nw one.
-        "last_understanding": last_messages["last_understanding"],
-        "last_ai_response": last_messages["last_ai_response"],
-        "current_understanding": None,
-        "current_mermaid": None,
-        "conversation_state": "processing"
-    }
+    context = get_context(user_query)
     
     try:
         print(f"🚀 Starting workflow execution for chat: {chat_id}")
