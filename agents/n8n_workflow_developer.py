@@ -215,19 +215,6 @@ Convert to n8n workflow JSON.
     n8n_workflow = json.loads(response)
     print("n8n_workflow json")
     print(n8n_workflow)
-    if context.get("chat_id"):
-        # Use timezone-aware timestamp (PST/PDT)
-        user_timezone = timezone(timedelta(hours=-8))  # PST timezone
-        current_time = datetime.now(user_timezone)
-        messages_collection.insert_one({
-            "chatId": context.get("chat_id"),
-            "id": f"n8n_workflow-json-{int(current_time.timestamp() * 1000)}",
-            "text": "Copy & Paste this to your n8n dashboard to create the workflow. or add the n8n credentials to your VibeFlows account to create the workflow automatically.",
-            "sender": "ai",
-            "type": "n8n_workflow_json",
-            "json": n8n_workflow,
-            "timestamp": current_time
-        })
     
     if context.get("user_id"):
         n8n_integrations = integration_collection.find_one({"user_id": context.get("user_id"), "type": "n8n"})
@@ -241,10 +228,12 @@ Convert to n8n workflow JSON.
             else:
                 print("No n8n credentials found")
             if n8n_api_response:
-                print("n8n_api_response")
+                print(n8n_api_response)
+                user_timezone = timezone(timedelta(hours=-8))  # PST timezone
+                current_time = datetime.now(user_timezone)
                 messages_collection.insert_one({
                     "chatId": context.get("chat_id"),
-                    "id": f"n8n_response-{int(current_time.timestamp() * 1000)}",
+                    "id": f"n8n_workflow-created-{int(current_time.timestamp() * 1000)}",
                     "text": "N8N Workflow created successfully.",
                     "sender": "ai",
                     "type": "n8n_workflow_created",
