@@ -11,12 +11,16 @@ from agents.llm_inference import run_inference
 import requests
 import os
 from dotenv import load_dotenv
+from pymongo import MongoClient
+from datetime import datetime, timezone, timedelta
 
 load_dotenv()
 
-N8N_API_KEY = os.getenv("N8N_API_KEY")
-N8N_URL = os.getenv("N8N_URL")
-
+# MongoDB setup
+mongo_client = MongoClient(os.getenv("MONGODB_URI"))
+db = mongo_client[os.getenv("MONGODB_DATABASE")]
+integration_collection = db["integrations"]
+messages_collection = db["messages"]
 
 SYSTEM = """You are an expert n8n workflow developer. You must convert mermaid diagrams into EXACTLY CORRECT n8n workflow JSON that imports perfectly.
 
@@ -161,7 +165,7 @@ DO NOT INCLUDE these fields (API rejects them):
 
 RESPOND WITH ONLY VALID JSON - NO markdown, explanations, or code blocks."""
 
-def post_workflow_to_n8n(workflow_json: Dict[str, Any]):
+def post_workflow_to_n8n(workflow_json: Dict[str, Any], N8N_API_KEY: str, N8N_URL: str):
     """Post workflow to n8n API."""
 
     if isinstance(workflow_json, str):
@@ -189,27 +193,62 @@ def post_workflow_to_n8n(workflow_json: Dict[str, Any]):
 
 
 def create_n8n_workflow(context: Dict[str, Any]) -> str:
-   """Convert context to n8n workflow JSON."""
-   
-   mermaid_diagram = context.get('last_mermaid') or context.get('current_mermaid') or ''
-   understanding = context.get('last_understanding') or context.get('current_understanding') or {}
-   user_message = context.get('user_message', '')
-   
-   messages = [
-       {"role": "system", "content": SYSTEM},
-       {"role": "user", "content": f"""
+    """Convert context to n8n workflow JSON."""
+    
+    mermaid_diagram = context.get('last_mermaid') or context.get('current_mermaid') or ''
+    understanding = context.get('last_understanding') or context.get('current_understanding') or {}
+    user_message = context.get('user_message', '')
+    
+    messages = [
+        {"role": "system", "content": SYSTEM},
+        {"role": "user", "content": f"""
 MERMAID: {mermaid_diagram}
 REQUIREMENTS: {json.dumps(understanding, indent=2)}
 MESSAGE: {user_message}
 
 Convert to n8n workflow JSON.
 """}
-   ]
-   
-   response = run_inference(messages, model_name="claude-sonnet-4-20250514")
-   response = response.replace("```json", "").replace("```", "").strip()
-   n8n_workflow = json.loads(response, indent=2)
-   print(n8n_workflow)
-   n8n_api_response = post_workflow_to_n8n(n8n_workflow)
-   print(n8n_api_response)
-   return n8n_workflow, n8n_api_response
+    ]
+    
+    response = run_inference(messages, model_name="claude-sonnet-4-20250514")
+    response = response.replace("```json", "").replace("```", "").strip()
+    n8n_workflow = json.loads(response)
+    print("n8n_workflow json")
+    print(n8n_workflow)
+    if context.get("chat_id"):
+        # Use timezone-aware timestamp (PST/PDT)
+        user_timezone = timezone(timedelta(hours=-8))  # PST timezone
+        current_time = datetime.now(user_timezone)
+        messages_collection.insert_one({
+            "chatId": context.get("chat_id"),
+            "id": f"n8n_workflow-json-{int(current_time.timestamp() * 1000)}",
+            "text": "Copy & Paste this to your n8n dashboard to create the workflow. or add the n8n credentials to your VibeFlows account to create the workflow automatically.",
+            "sender": "ai",
+            "type": "n8n_workflow_json",
+            "json": n8n_workflow,
+            "timestamp": current_time
+        })
+    
+    if context.get("user_id"):
+        n8n_integrations = integration_collection.find_one({"user_id": context.get("user_id"), "type": "n8n"})
+        if n8n_integrations:
+            DATA = n8n_integrations.get("data")
+            N8N_API_KEY = DATA.get("N8N_API_KEY")
+            N8N_URL = DATA.get("N8N_URL")
+            if N8N_API_KEY and N8N_URL:
+                n8n_api_response = post_workflow_to_n8n(n8n_workflow, N8N_API_KEY, N8N_URL)
+                print(n8n_api_response)
+            else:
+                print("No n8n credentials found")
+            if n8n_api_response:
+                print("n8n_api_response")
+                messages_collection.insert_one({
+                    "chatId": context.get("chat_id"),
+                    "id": f"n8n_response-{int(current_time.timestamp() * 1000)}",
+                    "text": "N8N Workflow created successfully.",
+                    "sender": "ai",
+                    "type": "n8n_workflow_created",
+                    "json": n8n_workflow,
+                    "timestamp": current_time
+                })
+    return n8n_workflow, n8n_api_response
