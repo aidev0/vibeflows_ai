@@ -251,4 +251,4 @@ Convert to n8n workflow JSON.
                     "json": n8n_workflow,
                     "timestamp": current_time
                 })
-    return n8n_workflow, n8n_api_response
+    return n8n_workflow
