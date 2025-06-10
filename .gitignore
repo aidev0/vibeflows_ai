@@ -214,3 +214,5 @@ mongodb.log
 
 *.pid
 *.log
+
+n8n_*.json
