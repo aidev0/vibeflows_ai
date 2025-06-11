@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -48,72 +48,62 @@ def make_json_serializable(obj):
     else:
         return obj
 
+async def run_workflow_background(user_query: dict):
+    """Run the workflow in the background"""
+    try:
+        print(f"🚀 Starting background workflow for chat: {user_query.get('chatId')}")
+        responses = await run_flow(user_query)
+        print(f"✅ Background workflow completed successfully with {len(responses) if responses else 0} responses")
+    except Exception as e:
+        print(f"❌ Background workflow failed: {str(e)}")
+        traceback.print_exc()
+
 @app.post("/api/message")
-async def process_message(user_query: UserQuery):
+async def process_message(user_query: UserQuery, background_tasks: BackgroundTasks):
     """Process a user message and run it through the VibeFlows workflow."""
     
     print(f"🔥 === API CALL START ===")
     print(f"📨 Received: {user_query.dict()}")
     
     try:
-        # Add timeout to workflow execution
-        print(f"⏱️ Starting workflow with 300s timeout...")
-        responses = await asyncio.wait_for(
-            run_flow(user_query.dict()), 
-            timeout=300.0  # 5 minutes
+        # Import the save_message function
+        from flows.user_interface_orchestrator import save_message
+        
+        # Save the processing message to database immediately
+        processing_doc = save_message(
+            user_query.chatId,
+            "🚀 Your workflow is being processed! This will take 2-3 minutes. Please refresh the page to see your workflow design, mermaid diagram, and N8N configuration once it's ready.",
+            "ai",
+            "simple_text"
         )
         
-        print(f"✅ Workflow completed, got {len(responses) if responses else 0} responses")
+        # Start the workflow in the background
+        background_tasks.add_task(run_workflow_background, user_query.dict())
         
-        if not responses:
-            print(f"⚠️ No responses from workflow")
+        # Return the saved message document
+        print(f"📤 Sending immediate response - workflow running in background")
+        if processing_doc:
             return JSONResponse(
                 status_code=200,
-                content={"error": "No responses from workflow", "success": False}
+                content=processing_doc
             )
-        
-        # Clean and test serialization
-        print(f"🧹 Cleaning responses for serialization...")
-        clean_responses = make_json_serializable(responses)
-        
-        # Test serialization
-        try:
-            serialized = json.dumps(clean_responses)
-            print(f"✅ Serialization test passed, response size: {len(serialized)} chars")
-        except Exception as e:
-            print(f"❌ Serialization test failed: {e}")
+        else:
+            # Fallback if save failed
+            processing_message = {
+                "id": f"ai-{int(datetime.now().timestamp() * 1000)}",
+                "chatId": user_query.chatId,
+                "text": "🚀 Your workflow is being processed! Please refresh the page in 2-3 minutes.",
+                "sender": "ai",
+                "timestamp": datetime.now().isoformat(),
+                "type": "simple_text"
+            }
             return JSONResponse(
-                status_code=500,
-                content={
-                    "error": "Response serialization failed", 
-                    "details": str(e),
-                    "success": False
-                }
+                status_code=200,
+                content=processing_message
             )
         
-        print(f"📤 Sending response with {len(clean_responses)} items")
-        return JSONResponse(
-            status_code=200,
-            content={
-                "success": True,
-                "data": clean_responses,
-                "count": len(clean_responses)
-            }
-        )
-        
-    except asyncio.TimeoutError:
-        print(f"⏰ Workflow timed out after 300 seconds")
-        return JSONResponse(
-            status_code=408,
-            content={
-                "error": "Workflow execution timed out after 5 minutes", 
-                "success": False,
-                "timeout": True
-            }
-        )
     except Exception as e:
-        print(f"❌ Error in API: {str(e)}")
-        print(f"📚 Full traceback:")
+        print(f"❌ Error starting workflow: {str(e)}")
         traceback.print_exc()
         return JSONResponse(
             status_code=500,
