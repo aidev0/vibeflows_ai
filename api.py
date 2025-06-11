@@ -72,7 +72,7 @@ async def process_message(user_query: UserQuery, background_tasks: BackgroundTas
         # Save the processing message to database immediately
         processing_doc = save_message(
             user_query.chatId,
-            "🚀 Your workflow is being processed! This will take 2-3 minutes. Please refresh the page to see your workflow design, mermaid diagram, and N8N configuration once it's ready.",
+            "🚀 Your workflow request is under process! This will take 2-3 minutes. We will refresh the page to show you our udnerstanding, a workflow design, and a n8n configuration once it's ready.",
             "ai",
             "simple_text"
         )
