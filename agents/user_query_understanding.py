@@ -10,20 +10,17 @@ import json
 from agents.llm_inference import run_inference
 
 OUTPUT_SCHEMA = {
-    "project_type": "string - 'app' if building complete application, 'workflow' if creating automation/integration, 'unclear' if ambiguous",
-    "app_type": "string - specific type: 'web_app', 'mobile_app', 'api_service', 'cli_tool', 'desktop_app', 'workflow'",
-    "user_understanding": "string - assess technical skill level: 'beginner/non-technical', 'intermediate', 'experienced developer', 'technical team'",
     "summary": "string - clear summary of what user wants to accomplish, their goals, target audience, business use case",
     "problem_understanding": "string - clear summary of what user wants to accomplish, their goals, target audience, business use case",
     "requirements": "array - list of specific functional features needed: ['user auth', 'real-time chat', 'payment processing', etc.]",
     "tech_preferences": "array - technologies user mentioned or prefers: ['React', 'Python', 'AWS', 'PostgreSQL', 'GitHub MCP']",
     "constraints": "object - practical limitations: {'timeline': '2 weeks', 'budget': 'startup/enterprise', 'scale': '100 users initially'}",
-    "user_intent": "string - what user is trying to do: 'requesting new project', 'asking for clarification', 'providing more details', 'expressing concern'",
+    "user_intent": "string - what user is trying to do: 'requesting new workflow', 'asking for clarification', 'providing more details', 'expressing concern'",
     "ambiguities": "array - unclear aspects that need resolution: ['authentication method unclear', 'deployment preferences unknown']",
     "clarification_questions": "array - targeted questions to resolve ambiguities: ['OAuth or email/password auth?', 'Which cloud provider?']",
     "confidence": "number - 0.0 to 1.0 confidence score in understanding completeness and accuracy",
     "is_clarification_needed": "boolean - true if critical information is missing and questions must be asked before proceeding",
-    "has_enough_info_for_planning": "boolean - true if sufficient detail exists to create development plan. No need to integrations, just do we have enough info to create a development plan?",
+    "has_enough_info_for_planning": "boolean - true if sufficient detail exists to create development plan. We need to know the integration names, tech stack, do we have enough info to create a development plan?",
     "is_planning_approved": "boolean - true if planning is approved by user",
     "is_development_approved": "boolean - true if development is approved by user",
     "recommended_next_steps": "array - what should happen next: ['ask clarifying questions', 'proceed to planning', 'validate technical feasibility']"
