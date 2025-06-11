@@ -19,7 +19,6 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",
         "https://vibeflows.app",
         "https://vibeflows-c28a3602302a.herokuapp.com"
     ],
