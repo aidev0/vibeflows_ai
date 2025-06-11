@@ -475,7 +475,7 @@ Convert to n8n workflow JSON.
                     "id": f"n8n_workflow-created-{int(current_time.timestamp() * 1000)}",
                     "text": "N8N Workflow created successfully.",
                     "sender": "ai",
-                    "type": "n8n_workflow_created",
+                    "type": "n8n_api_response_json",
                     "json": n8n_workflow,
                     "timestamp": current_time
                 })
