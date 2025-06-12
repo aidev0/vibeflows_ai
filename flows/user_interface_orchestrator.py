@@ -359,10 +359,24 @@ async def execute_flow(flow: Dict[str, Any], context: Dict[str, Any]) -> List[Di
 
 def get_context(user_query) -> Dict[str, Any]:
     """Get the last relevant messages from the chat."""
-     # Get required fields
+    # Get required fields
     chat_id = user_query.get("chatId")
     user_message = user_query.get("text")
     user_id = user_query.get("user_id")
+    
+    # Initialize base context with required fields
+    context = {
+        "chat_id": chat_id,
+        "user_id": user_id,
+        "user_message": user_message,
+        "last_mermaid": None,
+        "last_understanding": None,
+        "last_ai_response": None,
+        "current_understanding": None,
+        "current_mermaid": None,
+        "conversation_state": "processing",
+        "last_n8n_workflow": None,
+    }
     
     try:
         # Get all messages sorted by timestamp
@@ -371,44 +385,24 @@ def get_context(user_query) -> Dict[str, Any]:
             .find({"chatId": chat_id})
             .sort("timestamp", -1)
         )
-
-        context = {
-                "chat_id": chat_id,
-                "user_id": user_id,
-                "user_message": user_message,
-                "last_mermaid": None,  # last mermaid in chat db before edit, it is gonna be prev_mermaid after we make nw one.
-                "last_understanding": None,
-                "last_ai_response": None,
-                "current_understanding": None,
-                "current_mermaid": None,
-                "conversation_state": "processing",
-                "last_n8n_workflow": None,
-                }
-        
-        last_messages = {
-            "last_mermaid": None,
-            "last_understanding": None,
-            "last_ai_response": None
-        }
         
         for msg in messages:
             if msg.get("sender") == "ai" or msg.get("sender") == "assistant":
-                if msg.get("type") == "mermaid" and not last_messages["last_mermaid"]:
+                if msg.get("type") == "mermaid" and not context["last_mermaid"]:
                     context["last_mermaid"] = msg.get("mermaid")
-                elif msg.get("type") == "user_understanding_json" and not last_messages["last_understanding"]:
+                elif msg.get("type") == "user_understanding_json" and not context["last_understanding"]:
                     context["last_understanding"] = msg.get("json")
-                elif msg.get("type") == "simple_text" and not last_messages["last_ai_response"]:
+                elif msg.get("type") == "simple_text" and not context["last_ai_response"]:
                     context["last_ai_response"] = msg.get("text")
-                elif msg.get("type") == "n8n_workflow_json" and not last_messages["last_n8n_workflow"]:
+                elif msg.get("type") == "n8n_workflow_json" and not context["last_n8n_workflow"]:
                     context["last_n8n_workflow"] = msg.get("json")
+        
         return context
+        
     except Exception as e:
         print(f"Error getting last messages: {e}")
-        return {
-            "last_mermaid": None,
-            "last_understanding": None,
-            "last_ai_response": None
-        }
+        # Return the base context with required fields even in case of error
+        return context
 
 async def run_flow(user_query: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
