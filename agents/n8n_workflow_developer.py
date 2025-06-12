@@ -449,34 +449,49 @@ Convert to n8n workflow JSON.
 """}
     ]
     
-    response = run_inference(messages, model_name="claude-sonnet-4-20250514")
-    response = response.replace("```json", "").replace("```", "").strip()
-    n8n_workflow = json.loads(response)
-    print("n8n_workflow json")
-    print(n8n_workflow)
-    
-    if context.get("user_id"):
-        n8n_integrations = integration_collection.find_one({"user_id": context.get("user_id"), "type": "n8n"})
-        if n8n_integrations:
-            DATA = n8n_integrations.get("data")
-            N8N_API_KEY = DATA.get("N8N_API_KEY")
-            N8N_URL = DATA.get("N8N_URL")
-            if N8N_API_KEY and N8N_URL:
-                n8n_api_response = post_workflow_to_n8n(n8n_workflow, N8N_API_KEY, N8N_URL)
-                print(n8n_api_response)
-            else:
-                print("No n8n credentials found")
-            if n8n_api_response:
-                print(n8n_api_response)
-                user_timezone = timezone(timedelta(hours=-8))  # PST timezone
-                current_time = datetime.now(user_timezone)
-                messages_collection.insert_one({
-                    "chatId": context.get("chat_id"),
-                    "id": f"n8n_workflow-created-{int(current_time.timestamp() * 1000)}",
-                    "text": "N8N Workflow created successfully.",
-                    "sender": "ai",
-                    "type": "n8n_api_response_json",
-                    "json": n8n_workflow,
-                    "timestamp": current_time
-                })
-    return n8n_workflow
+    try:
+        response = run_inference(messages, model_name="claude-sonnet-4-20250514")
+        
+        # Clean the response
+        cleaned_response = response.replace("```json", "").replace("```", "").strip()
+        
+        # Try to parse the JSON
+        try:
+            n8n_workflow = json.loads(cleaned_response)
+        except json.JSONDecodeError as e:
+            print(f"Error parsing n8n workflow JSON: {e}")
+            print(f"Raw response: {cleaned_response}")
+            return {"error": f"Failed to parse n8n workflow JSON: {str(e)}"}
+        
+        print("n8n_workflow json")
+        print(n8n_workflow)
+        
+        if context.get("user_id"):
+            n8n_integrations = integration_collection.find_one({"user_id": context.get("user_id"), "type": "n8n"})
+            if n8n_integrations:
+                DATA = n8n_integrations.get("data")
+                N8N_API_KEY = DATA.get("N8N_API_KEY")
+                N8N_URL = DATA.get("N8N_URL")
+                if N8N_API_KEY and N8N_URL:
+                    n8n_api_response = post_workflow_to_n8n(n8n_workflow, N8N_API_KEY, N8N_URL)
+                    print(n8n_api_response)
+                else:
+                    print("No n8n credentials found")
+                if n8n_api_response:
+                    print(n8n_api_response)
+                    user_timezone = timezone(timedelta(hours=-8))  # PST timezone
+                    current_time = datetime.now(user_timezone)
+                    messages_collection.insert_one({
+                        "chatId": context.get("chat_id"),
+                        "id": f"n8n_workflow-api-response-{int(current_time.timestamp() * 1000)}",
+                        "text": "N8N Workflow created successfully.",
+                        "sender": "ai",
+                        "type": "n8n_api_response_json",
+                        "json": n8n_workflow,
+                        "timestamp": current_time
+                    })
+        return n8n_workflow
+        
+    except Exception as e:
+        print(f"Error in create_n8n_workflow: {e}")
+        return {"error": f"Failed to create n8n workflow: {str(e)}"}
