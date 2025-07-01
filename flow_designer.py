@@ -17,7 +17,10 @@ Return ONLY valid JSON with proper flow structure. No markdown, no explanations.
 
     prompt = f"""Create a flow for these requirements: {requirements}
 
-Design a flow that breaks down the user query into nodes (which can be flows, agents, apps, or functions).
+Design a flow that breaks down the user query into agents.
+
+Each agent is responsible for doing a task (consisted of 2-4 related functions) 
+that is taking care of a specific part of the user query.
 
 Return ONLY valid JSON with this structure:
 {{
@@ -28,7 +31,7 @@ Return ONLY valid JSON with this structure:
    "nodes": [
        {{
            "id": "node_id", 
-           "type": "flow|agent",
+           "type": "agent",
            "name": "node_name",
            "description": "specific node description",
            "input_schema": {{"type": "object", "properties": {{}}}},
