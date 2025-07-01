@@ -260,7 +260,7 @@ def execute_agent(agent_name: str, context: Dict[str, Any], action: str = None) 
     except Exception as e:
         return {"error": f"Agent {agent_name} failed: {str(e)}"}
 
-async def execute_flow(flow: Dict[str, Any], context: Dict[str, Any]) -> List[Dict[str, Any]]:
+async def run_flow(flow: Dict[str, Any], context: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Execute the flow starting from entry point and return all messages as a list."""
     
     current_node_id = flow["entry_point"]
@@ -457,7 +457,7 @@ async def run_flow(user_query: Dict[str, Any]) -> List[Dict[str, Any]]:
         print(f"📝 User message: {user_message}")
         
         # Execute the complete flow and get all responses
-        responses = await execute_flow(VIBEFLOWS_FLOW, context)
+        responses = await run_flow(VIBEFLOWS_FLOW, context)
         print(f"🎉 Workflow execution completed for chat: {chat_id}")
         return responses
         
