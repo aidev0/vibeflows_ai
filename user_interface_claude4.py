@@ -429,27 +429,3 @@ Be conversational and share your thought process as you work through the automat
     
     yield _stream_event("🎉 Agent workflow completed!", "final", final=True)
 
-# === EXAMPLE USAGE ===
-async def example_usage():
-    """Example of using the streaming agent"""
-    chat_id = "example_chat_123"
-    user_id = "google-oauth2|102802339888461716238"
-    user_query = "Create a marketing automation flow to segment customers based on email engagement"
-    
-    print("🚀 Starting streaming agent...")
-    
-    async for stream_event in run_claude_agent_flow(user_query, chat_id, user_id):
-        print(stream_event.rstrip())
-
-if __name__ == "__main__":
-    # For regular Python scripts
-    try:
-        asyncio.run(example_usage())
-    except RuntimeError:
-        # For Jupyter notebooks or environments with existing event loops
-        import nest_asyncio
-        nest_asyncio.apply()
-        asyncio.run(example_usage())
-
-# Alternative for Jupyter/notebook environments:
-# await example_usage()
