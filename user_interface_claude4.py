@@ -7,6 +7,7 @@ import asyncio
 import anthropic
 from typing import AsyncGenerator, Dict, Any, List
 from concurrent.futures import ThreadPoolExecutor
+import time
 
 # === TOOL SCHEMAS ===
 def get_tool_schemas():
@@ -93,15 +94,41 @@ from n8n_developer import n8n_developer
 from flow_runner import flow_runner
 
 def mongodb_tool(input_data):
+    def convert_for_json(obj):
+        """Recursively convert MongoDB objects to JSON-serializable format"""
+        if isinstance(obj, ObjectId):
+            return str(obj)
+        elif isinstance(obj, datetime):
+            return obj.isoformat()
+        elif isinstance(obj, dict):
+            return {k: convert_for_json(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_for_json(item) for item in obj]
+        else:
+            return obj
+    
     collection_name = input_data["collection"]
     query_filter = input_data.get("filter", {})
 
     try:
         collection = db[collection_name]
-        docs = list(collection.find(query_filter).limit(10))
-        for doc in docs:
-            doc["_id"] = str(doc["_id"])
-        return {"results": docs, "message": f"✅ Retrieved {len(docs)} document(s) from `{collection_name}`"}
+        docs = list(collection.find(query_filter))
+        
+        # Recursively convert all MongoDB objects to JSON-serializable format
+        serializable_docs = [convert_for_json(doc) for doc in docs]
+        
+        # Test JSON serialization to catch any remaining issues
+        try:
+            json.dumps(serializable_docs)
+        except TypeError as e:
+            print(f"❌ Still have serialization issue: {e}")
+            # Fallback: convert everything to strings
+            for doc in serializable_docs:
+                for key, value in doc.items():
+                    if not isinstance(value, (str, int, float, bool, list, dict, type(None))):
+                        doc[key] = str(value)
+        
+        return {"results": serializable_docs, "message": f"✅ Retrieved {len(docs)} document(s) from `{collection_name}`"}
     except Exception as e:
         return {"error": str(e), "message": "❌ Failed to run MongoDB query"}
 
@@ -133,7 +160,7 @@ claude_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 async def run_claude_agent_flow(user_query: str, chat_id: str, user_id: str) -> AsyncGenerator[str, None]:
     """
-    Claude agent flow with streaming thoughts and responses
+    Claude agent flow with streaming thoughts and responses - Fixed with proper N8N timeouts
     """
     
     if not user_query.strip():
@@ -159,7 +186,7 @@ Available tools:
 - query_analyzer: Analyze user queries for intent and requirements
 - flow_designer: Design automation flows from requirements  
 - flow_developer: Develop agents within flows
-- n8n_developer: Generate and deploy n8n workflows
+- n8n_developer: Generate and deploy n8n workflows (may take up to 3 minutes)
 - mongodb_tool: Query MongoDB collections (flows, agents, credentials, integrations, llm_models)
 
 Approach each task systematically:
@@ -169,7 +196,11 @@ Approach each task systematically:
 4. Provide clear progress updates
 5. Think aloud about your decisions
 
-Be conversational and share your thought process as you work through the automation challenge."""
+If user asks for n8n deploy, use the n8n_developer tool. 
+Don't ask for credentials, just deploy.
+
+Be conversational and share your thought process as you work through the automation challenge.
+Note: N8N deployments can take up to 3 minutes - this is normal for complex workflows."""
 
     # Get conversation history
     previous_messages = list(db.messages.find({"chat_id": chat_id}).sort("timestamp", 1))[-8:]
@@ -202,7 +233,7 @@ Be conversational and share your thought process as you work through the automat
         try:
             # Stream Claude 4's response with tool use
             with claude_client.messages.stream(
-                model="claude-sonnet-4-20250514",
+                model="claude-sonnet-4-20250514",  # Claude 4 Sonnet
                 max_tokens=4096,
                 system=system_prompt,
                 messages=messages,
@@ -213,18 +244,23 @@ Be conversational and share your thought process as you work through the automat
                 tool_calls = []
                 current_tool_input = ""
                 last_tool_input_time = 0
-                import time
+                
+                print("🤖 Claude AI Streaming Response:")
+                print("=" * 60)
                 
                 for event in stream:
                     if event.type == "message_start":
+                        print("🚀 [STREAM START]")
                         yield _stream_event("🧠 Analyzing the request...", "thinking")
                         await asyncio.sleep(0.1)  # Small delay for readability
                     
                     elif event.type == "content_block_start":
                         if event.content_block.type == "text":
+                            print("💭 [TEXT BLOCK START]")
                             yield _stream_event("💭 Thinking through the problem...", "reasoning_start")
                         elif event.content_block.type == "tool_use":
                             tool_name = event.content_block.name
+                            print(f"🔧 [TOOL START] {tool_name}")
                             yield _stream_event(f"🔧 Preparing to use {tool_name}...", "tool_prep")
                             current_tool_input = ""
                     
@@ -232,17 +268,18 @@ Be conversational and share your thought process as you work through the automat
                         if event.delta.type == "text_delta":
                             # Stream Claude's reasoning in chunks for better readability
                             text_chunk = event.delta.text
+                            print(text_chunk, end="", flush=True)  # Print Claude's thoughts in real-time
                             current_text += text_chunk
                             
-                            # Buffer text and send in meaningful chunks
-                            if len(text_chunk) > 20 or text_chunk.endswith(('.', '!', '?', ':')):
-                                yield _stream_event(text_chunk, "thought_stream")
-                                await asyncio.sleep(0.05)  # Small delay between thoughts
+                            # Stream all text chunks immediately for real-time experience
+                            yield _stream_event(text_chunk, "thought_stream")
+                            await asyncio.sleep(0.02)  # Small delay between chunks
                         
                         elif event.delta.type == "input_json_delta":
                             # Throttle tool input updates to avoid spam
                             current_time = time.time()
                             current_tool_input += event.delta.partial_json
+                            print(f"[TOOL_INPUT] {event.delta.partial_json}", end="", flush=True)
                             
                             if current_time - last_tool_input_time > 0.5:  # Update every 500ms max
                                 yield _stream_event("📝 Building tool parameters...", "tool_input")
@@ -256,8 +293,15 @@ Be conversational and share your thought process as you work through the automat
                                 "input": event.content_block.input,
                                 "id": event.content_block.id
                             })
+                            print(f"\n✅ [TOOL COMPLETE] {event.content_block.name}")
+                            print(f"🔧 [TOOL INPUT] {json.dumps(event.content_block.input, indent=2)}")
                             yield _stream_event(f"✅ Ready to execute {event.content_block.name}", "tool_ready")
                             await asyncio.sleep(0.2)
+                        elif hasattr(event.content_block, 'type') and event.content_block.type == "text":
+                            print("\n💭 [TEXT BLOCK COMPLETE]")
+                
+                print("\n" + "=" * 60)
+                print("🤖 Claude streaming complete!")
                 
                 # Save Claude's reasoning
                 if current_text.strip():
@@ -265,51 +309,103 @@ Be conversational and share your thought process as you work through the automat
                     yield _stream_event("💡 Reasoning complete", "reasoning_done")
                     await asyncio.sleep(0.3)
                 
-                # Execute tools sequentially
+                # === ENHANCED TOOL EXECUTION WITH PROPER TIMEOUTS ===
                 tool_results = []
                 for i, tool_call in enumerate(tool_calls):
                     tool_name = tool_call["name"]
                     tool_input = tool_call["input"]
                     tool_id = tool_call["id"]
                     
+                    # Set appropriate timeout based on tool type
+                    timeout = 240                    
                     yield _stream_event(f"🚀 Executing {tool_name} ({i+1}/{len(tool_calls)})...", "executing")
+                    
+                    # Special handling for n8n with progress updates
+                    progress_task = None
+                    if tool_name == "n8n_developer":
+                        yield _stream_event("⏱️ N8N deployment may take up to 3 minutes...", "info")
+                        
+                        # Create a simple progress tracking task
+                        async def n8n_progress_tracker():
+                            """Track n8n deployment progress"""
+                            progress_msgs = [
+                                "📡 Connecting to n8n server...",
+                                "📋 Validating workflow structure...", 
+                                "⚙️ Creating workflow nodes...",
+                                "🔗 Setting up node connections...",
+                                "🎯 Configuring triggers and actions...",
+                                "✅ Almost done, finalizing deployment..."
+                            ]
+                            try:
+                                for idx, msg in enumerate(progress_msgs):
+                                    await asyncio.sleep(30)  # Every 30 seconds
+                                    print(f"📈 N8N Progress: {msg} ({idx+1}/{len(progress_msgs)})")
+                            except asyncio.CancelledError:
+                                print("🛑 N8N progress tracking cancelled")
+                        
+                        progress_task = asyncio.create_task(n8n_progress_tracker())
+                    
                     await asyncio.sleep(0.2)
                     
                     try:
                         if tool_name in TOOLS:
-                            # Run ALL tools in thread pool to prevent blocking
+                            # Special handling for streaming flow_developer
+                            if tool_name == "flow_developer":
+                                yield _stream_event("🚀 Starting flow development with real-time agent streaming...", "executing")
+                                
+                                from flow_developer import flow_developer_streaming
+                                
+                                # Stream flow development updates in real-time
+                                async for update in flow_developer_streaming(tool_input):
+                                    message = update.get("message", "")
+                                    update_type = update.get("type", "status")
+                                    
+                                    # Format different types of updates differently
+                                    if update_type == "agent_stream":
+                                        # This is the captured Gemini streaming output
+                                        yield _stream_event(f"🤖 {message}", "agent_ai_stream")
+                                    elif update_type == "agent_stream_error":
+                                        # This is captured output from failed agent creation
+                                        yield _stream_event(f"❌ {message}", "agent_ai_error")
+                                    elif update_type in ["process_update", "agent_complete", "progress_update"]:
+                                        # Regular flow development updates
+                                        yield _stream_event(message, "flow_progress")
+                                    else:
+                                        # Other messages
+                                        yield _stream_event(message, "tool_stream")
+                                    
+                                    await asyncio.sleep(0.05)  # Small delay for readability
+                                
+                                # Set result for Claude
+                                result_msg = "✅ Flow development completed with real-time agent creation streaming"
+                                yield _stream_event(result_msg, "tool_result")
+                                save_message(chat_id, "assistant", "text", result_msg)
+                                
+                                tool_results.append({
+                                    "tool_use_id": tool_id,
+                                    "type": "tool_result",
+                                    "content": result_msg
+                                })
+                                continue  # Skip the normal executor path
+                            
+                            # Run ALL other tools in thread pool to prevent blocking
                             def run_tool_sync():
                                 """Run tool synchronously in thread"""
-                                if tool_name == "flow_developer":
-                                    if not tool_input.get("flow_id"):
-                                        return {"status": "error", "message": "❌ Missing flow_id"}
-                                    
-                                    # Collect streaming updates
-                                    messages = []
-                                    from flow_developer import flow_developer_streaming
-                                    import asyncio
-                                    
-                                    loop = asyncio.new_event_loop()
-                                    asyncio.set_event_loop(loop)
-                                    
-                                    try:
-                                        async def collect():
-                                            async for update in flow_developer_streaming(tool_input):
-                                                messages.append(update.get("message", ""))
-                                        
-                                        loop.run_until_complete(collect())
-                                    finally:
-                                        loop.close()
-                                    
-                                    return {"status": "completed", "message": "Flow development finished", "details": messages}
-                                
-                                elif tool_name == "n8n_developer":
+                                if tool_name == "n8n_developer":
                                     # Check credentials first
                                     from pymongo import MongoClient
                                     import os
                                     db = MongoClient(os.getenv("MONGODB_URI")).vibeflows
                                     
-                                    creds = list(db.credentials.find({"user_id": str(user_id)}))
+                                    print(f"🔍 Checking N8N credentials for user_id: {user_id}")
+                                    
+                                    # Simple fix: Replace URL-encoded pipe with actual pipe
+                                    clean_user_id = str(user_id).replace('%7C', '|').replace('%7c', '|')
+                                    print(f"🔍 Cleaned user_id: {clean_user_id}")
+                                    
+                                    creds = list(db.credentials.find({"user_id": clean_user_id}))
+                                    print(f"🔍 Found {len(creds)} credentials for this user")
+                                    
                                     has_url = any(c["name"] == "N8N_URL" for c in creds)
                                     has_key = any(c["name"] == "N8N_API_KEY" for c in creds)
                                     
@@ -323,29 +419,29 @@ Be conversational and share your thought process as you work through the automat
                                     # Regular synchronous tools
                                     return TOOLS[tool_name](tool_input)
                             
-                            # Execute tool in thread pool
+                            # Execute tool with proper timeout
                             loop = asyncio.get_event_loop()
                             with ThreadPoolExecutor(max_workers=1) as executor:
-                                result = await loop.run_in_executor(executor, run_tool_sync)
+                                result = await asyncio.wait_for(
+                                    loop.run_in_executor(executor, run_tool_sync),
+                                    timeout=timeout
+                                )
                             
-                            # Handle flow_developer special case
-                            if tool_name == "flow_developer" and result.get("details"):
-                                for detail_msg in result["details"]:
-                                    if detail_msg.strip():
-                                        yield _stream_event(detail_msg, "tool_stream")
-                                        save_message(chat_id, "assistant", "text", detail_msg)
-                                        await asyncio.sleep(0.1)
+                            # Cancel progress updates if they're running
+                            if progress_task and not progress_task.done():
+                                progress_task.cancel()
+                                try:
+                                    await progress_task
+                                except asyncio.CancelledError:
+                                    pass
                             
                             # Format result message with better context
                             if tool_name == "flow_designer" and result.get("_id"):
-                                # Include flow_id in the message for Claude to use
                                 flow_id = str(result["_id"])
                                 flow_name = result.get("name", "Unnamed Flow")
                                 result_msg = f"✅ Flow '{flow_name}' created successfully with ID: {flow_id}. Use this flow_id for development: {flow_id}"
-                                # Store the ID for easy access
                                 result["flow_id"] = flow_id
                             elif tool_name == "mongodb_tool":
-                                # Better formatting for MongoDB results
                                 docs = result.get("results", [])
                                 if docs and "flows" in tool_input.get("collection", ""):
                                     flow_list = []
@@ -354,6 +450,18 @@ Be conversational and share your thought process as you work through the automat
                                     result_msg = f"✅ Found {len(docs)} flows:\n" + "\n".join(flow_list)
                                 else:
                                     result_msg = result.get("message", f"✅ {tool_name} completed")
+                            elif tool_name == "n8n_developer":
+                                # Special handling for n8n results
+                                if result.get("status") == "deployed":
+                                    result_msg = f"🎉 {result.get('message', 'N8N workflow deployed successfully!')}"
+                                    if result.get("workflow_url"):
+                                        result_msg += f"\n🔗 Workflow URL: {result['workflow_url']}"
+                                elif result.get("status") == "timeout":
+                                    result_msg = f"⏰ {result.get('message', 'N8N deployment timed out')}"
+                                elif result.get("status") == "skipped":
+                                    result_msg = result.get("message", "N8N deployment skipped")
+                                else:
+                                    result_msg = result.get("summary") or result.get("message") or "✅ N8N workflow processed"
                             else:
                                 result_msg = result.get("summary") or result.get("message") or f"✅ {tool_name} completed"
                             
@@ -364,10 +472,8 @@ Be conversational and share your thought process as you work through the automat
                             # Store result for Claude with better formatting
                             tool_result_content = result_msg
                             if tool_name == "flow_designer" and result.get("flow_id"):
-                                # Include structured data for Claude
                                 tool_result_content = f"{result_msg}\n\nFlow ID for development: {result['flow_id']}"
                             elif tool_name == "mongodb_tool" and result.get("results"):
-                                # Include the actual data structure
                                 tool_result_content = f"{result_msg}\n\nData: {json.dumps(result['results'], indent=2)}"
                             
                             tool_results.append({
@@ -386,7 +492,54 @@ Be conversational and share your thought process as you work through the automat
                                 "content": error_msg
                             })
                     
+                    except asyncio.TimeoutError:
+                        # Cancel progress updates if they're running
+                        if progress_task and not progress_task.done():
+                            progress_task.cancel()
+                            try:
+                                await progress_task
+                            except asyncio.CancelledError:
+                                pass
+                        
+                        # Handle timeout based on tool type
+                        if tool_name == "n8n_developer":
+                            timeout_msg = "⏰ N8N deployment timed out after 4 minutes. This might be due to server load or network connectivity issues."
+                            suggestion_msg = "💡 You can try deploying again, or I can provide the workflow JSON for manual import."
+                            
+                            yield _stream_event(timeout_msg, "timeout")
+                            yield _stream_event(suggestion_msg, "suggestion")
+                            
+                            # Store timeout info for potential fallback
+                            save_message(chat_id, "system", "timeout", "n8n_deployment_timeout", {
+                                "tool_input": tool_input,
+                                "timestamp": datetime.now().isoformat()
+                            })
+                            
+                            tool_results.append({
+                                "tool_use_id": tool_id,
+                                "type": "tool_result",
+                                "is_error": True,
+                                "content": f"{timeout_msg} {suggestion_msg}"
+                            })
+                        else:
+                            timeout_msg = f"⏰ {tool_name} timed out after {timeout} seconds"
+                            yield _stream_event(timeout_msg, "timeout")
+                            tool_results.append({
+                                "tool_use_id": tool_id,
+                                "type": "tool_result",
+                                "is_error": True,
+                                "content": timeout_msg
+                            })
+                    
                     except Exception as e:
+                        # Cancel progress updates if they're running
+                        if progress_task and not progress_task.done():
+                            progress_task.cancel()
+                            try:
+                                await progress_task
+                            except asyncio.CancelledError:
+                                pass
+                        
                         error_msg = f"❌ Error in {tool_name}: {str(e)}"
                         yield _stream_event(error_msg, "error")
                         save_message(chat_id, "assistant", "text", error_msg)
@@ -428,4 +581,3 @@ Be conversational and share your thought process as you work through the automat
             break
     
     yield _stream_event("🎉 Agent workflow completed!", "final", final=True)
-

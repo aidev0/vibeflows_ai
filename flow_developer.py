@@ -5,6 +5,8 @@ import json
 import asyncio
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
+import sys
+from io import StringIO
 
 client = MongoClient(os.getenv('MONGODB_URI'))
 db = client.vibeflows
@@ -101,6 +103,15 @@ async def flow_developer_streaming(input_data):
             
             yield {"message": f"📊 Submitted {len(futures)} agent creation jobs to process pool", "type": "status"}
             
+            # Yield start messages for each process immediately
+            for i, (node, node_index) in enumerate(node_data_list):
+                yield {
+                    "message": f"🔨 [Process {node_index+1}] Starting agent creation for {node.get('name', node['id'])}",
+                    "type": "agent_stream",
+                    "node_id": node['id'],
+                    "progress": f"starting"
+                }
+            
             # Wait for completion with periodic updates
             completed = 0
             successful = 0
@@ -126,6 +137,18 @@ async def flow_developer_streaming(input_data):
                         agent_id = agent_result.get('agent_id')
                         node = result['node']
                         
+                        # Stream the captured output from agent_developer (Gemini streaming)
+                        if result.get('captured_output'):
+                            captured_lines = result['captured_output'].strip().split('\n')
+                            for line in captured_lines:
+                                if line.strip():  # Only yield non-empty lines
+                                    yield {
+                                        "message": line,
+                                        "type": "agent_stream",
+                                        "node_id": node['id'],
+                                        "progress": f"{completed}/{len(futures)}"
+                                    }
+                        
                         # Update node with agent_id
                         for j, n in enumerate(new_flow['nodes']):
                             if n['id'] == node['id']:
@@ -143,6 +166,19 @@ async def flow_developer_streaming(input_data):
                         }
                     else:
                         failed += 1
+                        
+                        # Stream any captured output even for failed attempts
+                        if result.get('captured_output'):
+                            captured_lines = result['captured_output'].strip().split('\n')
+                            for line in captured_lines:
+                                if line.strip():  # Only yield non-empty lines
+                                    yield {
+                                        "message": line,
+                                        "type": "agent_stream_error",
+                                        "node_id": result['node']['id'],
+                                        "progress": f"{completed}/{len(futures)}"
+                                    }
+                        
                         yield {
                             "message": f"❌ [{completed}/{len(futures)}] Agent creation failed: {result.get('error', 'Unknown error')}",
                             "type": "agent_error",
@@ -213,25 +249,47 @@ def create_agent_sync(node_data):
         node, node_index = node_data
         agent_input = {'requirements': str(node)}
         
+        # Capture stdout to get ALL output including the start message
+        old_stdout = sys.stdout
+        captured_output = StringIO()
+        sys.stdout = captured_output
+        
+        # Print the start message to captured output
         print(f"🔨 [Process {node_index+1}] Starting agent creation for {node.get('name', node['id'])}")
         
-        # Create agent synchronously
-        result = agent_developer(agent_input)
-        
-        return {
-            'node': node,
-            'node_index': node_index,
-            'agent_result': result,
-            'success': True,
-            'message': f"✅ [Process {node_index+1}] Agent '{result.get('name', 'Unnamed')}' created successfully"
-        }
+        try:
+            # Create agent synchronously
+            result = agent_developer(agent_input)
+            
+            # Get the captured output
+            captured_text = captured_output.getvalue()
+            
+            return {
+                'node': node,
+                'node_index': node_index,
+                'agent_result': result,
+                'success': True,
+                'message': f"✅ [Process {node_index+1}] Agent '{result.get('name', 'Unnamed')}' created successfully",
+                'captured_output': captured_text  # Include the captured streaming output
+            }
+            
+        finally:
+            # Always restore stdout
+            sys.stdout = old_stdout
+            # Also print the captured output to the process stdout for local debugging
+            print(captured_text, end='')
         
     except Exception as e:
+        # Restore stdout in case of error
+        if 'old_stdout' in locals():
+            sys.stdout = old_stdout
+            
         return {
             'node': node,
             'node_index': node_index,
             'agent_result': None,
             'success': False,
             'error': str(e),
-            'message': f"❌ [Process {node_index+1}] Failed: {str(e)}"
+            'message': f"❌ [Process {node_index+1}] Failed: {str(e)}",
+            'captured_output': ''
         }

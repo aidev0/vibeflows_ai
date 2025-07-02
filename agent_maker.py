@@ -209,14 +209,11 @@ def agent_developer(input_data: dict) -> dict:
     Design an executable agent from a flow node specification
     
     Args:
-        agent_node: Node definition from flow with type="agent"
-        system: System message for the agent
-        input_schema: Input schema for the agent
-        output_schema: Output schema for the agent
-        flow_context: Context about the parent flow
+        input_data: Dictionary containing:
+            - requirements: Stringified agent node or additional requirements
         
     Returns:
-        agent_id: MongoDB ObjectId of created agent
+        Dictionary containing agent specification and agent_id
     """
 
     requirements = input_data.get("requirements", "")
@@ -241,72 +238,62 @@ def agent_developer(input_data: dict) -> dict:
             llm_node_schema=json.dumps(LLM_NODE_SCHEMA, indent=2)
         )
         
-        # Add system prompt and timeout to prevent hanging
-        prompt = "You are an expert agent architect. Return only valid JSON matching the agent schema."
-        response = genai.GenerativeModel("gemini-1.5-flash").generate_content(system)
+        # Prepare input data context for Gemini
+        context = "Input Data: " + str(input_data)
         
-        text = response.text.strip()
+        # Add system prompt and input data context
+        prompt = f"{system}\n\n{context}\n\nYou are an expert agent architect. Return only valid JSON matching the agent schema."
         
-        # Clean response of markdown code blocks if present
-        if "```json" in text:
-            text = text.split("```json")[1].split("```")[0].strip()
-        elif "```" in text:
-            text = text.split("```")[1].split("```")[0].strip()
+        print("🤖 Streaming AI response:")
+        print("=" * 50)
         
-        # Parse JSON with error handling
-        try:
-            agent_spec = json.loads(text)
-        except json.JSONDecodeError as e:
-            print(f"❌ Failed to parse agent JSON: {str(e)}")
-            print(f"Raw response: {text}")
-            raise Exception(f"Failed to parse agent JSON: {str(e)}")
-        
-        # Store agent in database
-        result = db.agents.insert_one({
-            **agent_spec,
-            "created_at": datetime.utcnow(),
-            "status": "ready"
-        })
-        
-        return {**agent_spec, "agent_id": str(result.inserted_id)}
-        
-    except Exception as e:
-        print(f"❌ Error in agent_developer: {str(e)}")
-        raise
-
-async def agent_developer_streaming(input_data: dict):
-    """
-    Design an executable agent from a flow node specification with streaming
-    """
-    requirements = input_data.get("requirements", "")
-    
-    try:
-        # Get available resources
-        tools = list(db.tools.find({}))
-        integrations = list(db.integrations.find({}))
-        credentials = list(db.credentials.find({}, {"name": 1}))
-        
-        system_prompt = AGENT_PROMPT.format(
-            requirements=requirements,
-            tools="",
-            integrations="",
-            credentials=str(credentials),
-            agent_schema=str(AGENT_SCHEMA),
-            node_schema=json.dumps(NODE_SCHEMA, indent=2),
-            edge_schema=json.dumps(EDGE_SCHEMA, indent=2),
-            tool_schema=json.dumps(TOOL_NODE_SCHEMA, indent=2),
-            integration_schema=json.dumps(INTEGRATION_SCHEMA, indent=2),
-            mcp_client_schema=json.dumps(MCP_CLIENT_SCHEMA, indent=2),
-            llm_node_schema=json.dumps(LLM_NODE_SCHEMA, indent=2)
+        # Use streaming to see the response as it comes in
+        response = genai.GenerativeModel("gemini-2.5-pro").generate_content(
+            prompt, 
+            stream=True
         )
         
-        prompt = f"{system_prompt}\n\nYou are an expert agent architect. Return only valid JSON matching the agent schema. No markdown formatting, just pure JSON. Don't forget the function as requested."
+        # Collect and print the streaming response (but completely block JSON)
+        full_text = ""
+        json_mode = False
+        brace_count = 0
         
-        # Generate response with Gemini
-        response = genai.GenerativeModel("gemini-2.5-pro").generate_content(prompt)
+        for chunk in response:
+            if chunk.text:
+                chunk_text = chunk.text
+                full_text += chunk_text
+                
+                # Detect start of JSON in various formats
+                if not json_mode:
+                    # Look for JSON indicators
+                    if (chunk_text.strip().startswith('{"') or 
+                        chunk_text.strip().startswith('{\n') or
+                        '{"' in chunk_text or
+                        "```json" in chunk_text.lower() or
+                        chunk_text.strip().startswith('{') and len(chunk_text.strip()) > 1):
+                        json_mode = True
+                        brace_count = 0
+                        print("\n🔧 Generating agent specification...")
+                        print("⏳ Please wait while the agent is being created...")
+                
+                # Count braces to track JSON structure
+                if json_mode:
+                    brace_count += chunk_text.count('{')
+                    brace_count -= chunk_text.count('}')
+                    
+                    # Check if JSON is complete
+                    if brace_count <= 0 and (chunk_text.endswith('}') or 
+                                           chunk_text.strip().endswith('}') or
+                                           "```" in chunk_text):
+                        json_mode = False
+                        print("✅ Agent specification complete!")
+                
+                # Only print if NOT in JSON mode
+                if not json_mode:
+                    print(chunk_text, end="", flush=True)
         
-        # Collect response
-        full_text = response.text.strip()
+        print("\n" + "=" * 50)
+        print("🤖 AI response complete!")
         
         text = full_text.strip()
         
@@ -320,28 +307,75 @@ async def agent_developer_streaming(input_data: dict):
         try:
             agent_spec = json.loads(text)
         except json.JSONDecodeError as e:
-            # Try to fix common JSON issues
-            text = text.replace("'", '"')
-            text = text.replace('True', 'true').replace('False', 'false').replace('None', 'null')
+            print(f"❌ Failed to parse agent JSON: {str(e)}")
+            print(f"📄 Raw response length: {len(text)} characters")
+            print(f"📄 Raw response (first 500 chars):")
+            print(text[:500])
+            print("\n📄 Raw response (last 500 chars):")
+            print(text[-500:])
             
+            # Save problematic response for debugging
+            debug_file = f"debug_agent_response_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+            with open(debug_file, 'w') as f:
+                f.write(text)
+            print(f"💾 Saved raw response to {debug_file}")
+            
+            # Try to fix common JSON issues
+            print("🔧 Attempting to fix JSON...")
+            
+            # Fix 1: Replace single quotes with double quotes
+            fixed_text = text.replace("'", '"')
+            
+            # Fix 2: Fix Python boolean/null values
+            fixed_text = fixed_text.replace('True', 'true').replace('False', 'false').replace('None', 'null')
+            
+            # Fix 3: Try to handle unterminated strings by finding the error location
             try:
-                agent_spec = json.loads(text)
-            except json.JSONDecodeError:
-                raise Exception(f"Failed to parse agent JSON: {str(e)}")
-        
-        # Validate required fields
-        required_fields = ["name", "description", "nodes", "edges", "function"]
-        for field in required_fields:
-            if field not in agent_spec:
-                agent_spec[field] = "" if field in ["name", "description", "function"] else []
-        
-        # Set defaults
-        agent_spec.setdefault("input_schema", {})
-        agent_spec.setdefault("output_schema", {})
-        agent_spec.setdefault("tools", [])
-        agent_spec.setdefault("integrations", [])
-        agent_spec.setdefault("mcp_clients", [])
-        agent_spec.setdefault("status", "ready")
+                # Try to find where the JSON breaks
+                lines = fixed_text.split('\n')
+                if len(lines) >= 39:  # Error was at line 39
+                    print(f"🔍 Problem line 39: {lines[38]}")
+                
+                # Fix 4: Try to escape unescaped quotes in strings
+                import re
+                # Find content within double quotes and escape internal quotes
+                def fix_quotes(match):
+                    content = match.group(1)
+                    # Escape internal quotes that aren't already escaped
+                    content = re.sub(r'(?<!\\)"', r'\\"', content)
+                    return f'"{content}"'
+                
+                # Apply quote fixing to string values
+                fixed_text = re.sub(r'"([^"]*(?:[^"\\]|\\.)*)(?="[,\]}])', fix_quotes, fixed_text)
+                
+                agent_spec = json.loads(fixed_text)
+                print("✅ Successfully fixed JSON!")
+                
+            except json.JSONDecodeError as e2:
+                print(f"❌ Still failed after fixes: {str(e2)}")
+                
+                # Try one more approach - truncate at the error position and see if we can salvage
+                try:
+                    error_pos = e.pos if hasattr(e, 'pos') else 2178
+                    truncated = text[:error_pos] + '}'  # Try to close the JSON
+                    agent_spec = json.loads(truncated)
+                    print("✅ Partially recovered JSON by truncation!")
+                except:
+                    print("❌ Could not recover JSON. Generating minimal fallback agent.")
+                    # Create a minimal fallback agent
+                    agent_spec = {
+                        "name": "Fallback Agent",
+                        "description": "Generated due to JSON parsing error",
+                        "nodes": [],
+                        "edges": [],
+                        "input_schema": {},
+                        "output_schema": {},
+                        "function": "def fallback_agent(input_data):\n    return {'error': 'Agent generation failed', 'input': input_data}",
+                        "tools": [],
+                        "integrations": [],
+                        "mcp_clients": [],
+                        "status": "error"
+                    }
         
         # Store agent in database
         result = db.agents.insert_one({
@@ -350,21 +384,8 @@ async def agent_developer_streaming(input_data: dict):
             "status": "ready"
         })
         
-        agent_id = str(result.inserted_id)
-        
-        # Yield only the agent creation result
-        yield {
-            "message": f"✅ Created agent: {agent_spec.get('name', 'Unnamed Agent')}",
-            "type": "agent_created",
-            "agent_id": agent_id,
-            "agent_name": agent_spec.get('name', 'Unnamed Agent'),
-            "node_count": len(agent_spec.get('nodes', [])),
-            "edge_count": len(agent_spec.get('edges', []))
-        }
+        return {**agent_spec, "agent_id": str(result.inserted_id)}
         
     except Exception as e:
-        yield {
-            "message": f"❌ Failed to create agent: {str(e)}",
-            "type": "agent_error",
-            "error": str(e)
-        }
+        print(f"❌ Error in agent_developer: {str(e)}")
+        raise

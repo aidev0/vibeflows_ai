@@ -168,9 +168,12 @@ def n8n_publisher(input_data: Dict[str, Any]) -> Dict[str, Any]:
     # Try to publish to n8n if credentials exist
     n8n_response = None
     if user_id:
+        # Apply URL decoding fix for user_id (handle %7C -> | encoding)
+        clean_user_id = str(user_id).replace('%7C', '|').replace('%7c', '|')
+        
         # Get n8n credentials
-        n8n_url_cred = db.credentials.find_one({'user_id': user_id, 'name': 'N8N_URL'})
-        n8n_api_key_cred = db.credentials.find_one({'user_id': user_id, 'name': 'N8N_API_KEY'})
+        n8n_url_cred = db.credentials.find_one({'user_id': clean_user_id, 'name': 'N8N_URL'})
+        n8n_api_key_cred = db.credentials.find_one({'user_id': clean_user_id, 'name': 'N8N_API_KEY'})
         
         if n8n_url_cred and n8n_api_key_cred:
             n8n_url = n8n_url_cred.get('value')
@@ -196,7 +199,7 @@ def n8n_publisher(input_data: Dict[str, Any]) -> Dict[str, Any]:
                         user_timezone = timezone(timedelta(hours=-8))
                         current_time = datetime.now(user_timezone)
                         db.n8n_workflows.insert_one({
-                            'user_id': user_id,
+                            'user_id': clean_user_id,
                             'workflow_json': workflow_json,
                             'n8n_response': n8n_response,
                             'status': 'published',
