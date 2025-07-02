@@ -26,14 +26,12 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://vibeflows.app",
-        "https://vibeflows-c28a3602302a.herokuapp.com",
-        "http://localhost:3000"
+        "https://vibeflows-c28a3602302a.herokuapp.com"
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 class AIRequest(BaseModel):
     user_query: Optional[str] = ""
     chat_id: Optional[str] = None
