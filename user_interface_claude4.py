@@ -70,14 +70,29 @@ def get_tool_schemas():
         },
         {
             "name": "mongodb_tool",
-            "description": "Reads from any MongoDB collection with a filter",
+            "description": "Reads from MongoDB collections (agents, flows, runs, n8n_workflows only) with a filter",
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "collection": {"type": "string"},
+                    "collection": {"type": "string", "enum": ["agents", "flows", "runs", "n8n_workflows"]},
                     "filter": {"type": "object"}
                 },
                 "required": ["collection"]
+            }
+        },
+        {
+            "name": "check_credentials",
+            "description": "Checks if user has access to required credentials",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "user_id": {"type": "string"},
+                    "required_credentials": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    }
+                },
+                "required": ["user_id", "required_credentials"]
             }
         }
     ]
@@ -109,6 +124,11 @@ def mongodb_tool(input_data):
     
     collection_name = input_data["collection"]
     query_filter = input_data.get("filter", {})
+    
+    # Restrict access to only allowed collections
+    allowed_collections = ["agents", "flows", "runs", "n8n_workflows"]
+    if collection_name not in allowed_collections:
+        return {"error": f"Access denied. Only allowed collections: {', '.join(allowed_collections)}", "message": "❌ Unauthorized collection access"}
 
     try:
         collection = db[collection_name]
@@ -132,13 +152,48 @@ def mongodb_tool(input_data):
     except Exception as e:
         return {"error": str(e), "message": "❌ Failed to run MongoDB query"}
 
+def check_credentials(input_data):
+    """Check if user has access to required credentials"""
+    user_id = input_data["user_id"]
+    required_credentials = input_data["required_credentials"]
+    
+    # Clean user_id (handle URL encoding)
+    clean_user_id = str(user_id).replace('%7C', '|').replace('%7c', '|')
+    
+    try:
+        # Get user's credentials from database
+        user_creds = list(db.credentials.find({"user_id": clean_user_id}))
+        
+        # Extract credential names
+        available_creds = [cred["name"] for cred in user_creds]
+        
+        # Check which required credentials are missing
+        missing_creds = [cred for cred in required_credentials if cred not in available_creds]
+        
+        if missing_creds:
+            return {
+                "has_access": False,
+                "missing_credentials": missing_creds,
+                "available_credentials": available_creds,
+                "message": f"❌ Missing required credentials: {', '.join(missing_creds)}"
+            }
+        else:
+            return {
+                "has_access": True,
+                "available_credentials": available_creds,
+                "message": f"✅ User has access to all required credentials"
+            }
+    except Exception as e:
+        return {"error": str(e), "message": "❌ Failed to check credentials"}
+
 TOOLS = {
     "query_analyzer": query_analyzer,
     "flow_designer": flow_designer,
     "flow_developer": flow_developer_streaming,
     "n8n_developer": n8n_developer,
     "flow_runner": flow_runner,
-    "mongodb_tool": mongodb_tool
+    "mongodb_tool": mongodb_tool,
+    "check_credentials": check_credentials
 }
 
 # === HELPERS ===
@@ -187,7 +242,8 @@ Available tools:
 - flow_designer: Design automation flows from requirements  
 - flow_developer: Develop agents within flows
 - n8n_developer: Generate and deploy n8n workflows (may take up to 3 minutes)
-- mongodb_tool: Query MongoDB collections (flows, agents, credentials, integrations, llm_models)
+- mongodb_tool: Query MongoDB collections (agents, flows, runs, n8n_workflows only)
+- check_credentials: Check if user has access to required credentials
 
 Approach each task systematically:
 1. First understand what the user wants (use query_analyzer if needed)
@@ -197,7 +253,11 @@ Approach each task systematically:
 5. Think aloud about your decisions
 
 If user asks for n8n deploy, use the n8n_developer tool. 
-Don't ask for credentials, just deploy.
+Don't ask for credentials, just deploy. 
+You are not allowed to send the credentials to the user.
+Do not send the credentials to the user in any way.
+
+If API call fails because of missing credentials, send the message with key "missing_credentials" and a list of credentials as a string.
 
 Be conversational and share your thought process as you work through the automation challenge.
 Note: N8N deployments can take up to 3 minutes - this is normal for complex workflows."""
@@ -410,7 +470,7 @@ Note: N8N deployments can take up to 3 minutes - this is normal for complex work
                                     has_key = any(c["name"] == "N8N_API_KEY" for c in creds)
                                     
                                     if not (has_url and has_key):
-                                        return {"status": "skipped", "message": "⚠️ Missing N8N credentials (N8N_URL and N8N_API_KEY)"}
+                                        return {"status": "skipped", "message": "⚠️ Missing N8N credentials (N8N_URL and N8N_API_KEY)", "credentials": creds}
                                     else:
                                         tool_input["user_id"] = str(user_id)
                                         return TOOLS[tool_name](tool_input)
