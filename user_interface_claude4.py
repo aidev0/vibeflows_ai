@@ -94,6 +94,18 @@ def get_tool_schemas():
                 },
                 "required": ["user_id", "required_credentials"]
             }
+        },
+        {
+            "name": "get_n8n_workflows",
+            "description": "Gets user's n8n workflows and displays their N8N URLs",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "user_id": {"type": "string"},
+                    "limit": {"type": "number", "default": 10}
+                },
+                "required": ["user_id"]
+            }
         }
     ]
 
@@ -187,6 +199,58 @@ def check_credentials(input_data):
     except Exception as e:
         return {"error": str(e), "message": "❌ Failed to check credentials"}
 
+def get_n8n_workflows(input_data):
+    """Get user's n8n workflows and display their N8N URLs"""
+    user_id = input_data["user_id"]
+    limit = input_data.get("limit", 10)
+    
+    # Clean user_id (handle URL encoding)
+    clean_user_id = str(user_id).replace('%7C', '|').replace('%7c', '|')
+    
+    try:
+        # Get user's N8N URL credential
+        n8n_url_cred = db.credentials.find_one({"user_id": clean_user_id, "name": "N8N_URL"})
+        if not n8n_url_cred:
+            return {"error": "N8N_URL credential not found", "message": "❌ User doesn't have N8N_URL credential configured"}
+        
+        n8n_base_url = n8n_url_cred["value"].rstrip('/')
+        
+        # Get user's n8n workflows, sorted by most recent
+        workflows = list(db.n8n_workflows.find(
+            {"user_id": clean_user_id}, 
+            {"_id": 1, "name": 1, "description": 1, "n8n_response": 1, "created_at": 1}
+        ).sort("created_at", -1).limit(limit))
+        
+        workflow_urls = []
+        for workflow in workflows:
+            # Extract workflow ID from n8n_response
+            n8n_response = workflow.get("n8n_response", {})
+            workflow_id = n8n_response.get("id")
+            
+            if workflow_id:
+                workflow_url = f"{n8n_base_url}/workflow/{workflow_id}"
+                workflow_urls.append({
+                    "_id": str(workflow["_id"]),
+                    "name": workflow.get("name", "Unnamed Workflow"),
+                    "description": workflow.get("description", ""),
+                    "n8n_workflow_id": workflow_id,
+                    "n8n_url": workflow_url,
+                    "created_at": workflow.get("created_at")
+                })
+        
+        if not workflow_urls:
+            return {"workflows": [], "message": "📭 No N8N workflows found for this user"}
+        
+        return {
+            "workflows": workflow_urls,
+            "count": len(workflow_urls),
+            "n8n_base_url": n8n_base_url,
+            "message": f"✅ Found {len(workflow_urls)} N8N workflow(s) for user"
+        }
+        
+    except Exception as e:
+        return {"error": str(e), "message": "❌ Failed to get N8N workflows"}
+
 TOOLS = {
     "query_analyzer": query_analyzer,
     "flow_designer": flow_designer,
@@ -194,7 +258,8 @@ TOOLS = {
     "n8n_developer": n8n_developer,
     "flow_runner": flow_runner,
     "mongodb_tool": mongodb_tool,
-    "check_credentials": check_credentials
+    "check_credentials": check_credentials,
+    "get_n8n_workflows": get_n8n_workflows
 }
 
 # === HELPERS ===
@@ -249,6 +314,7 @@ Available tools:
 - n8n_developer: Generate and deploy n8n workflows (may take up to 3 minutes)
 - mongodb_tool: Query MongoDB collections (agents, flows, runs, n8n_workflows only)
 - check_credentials: Check if user has access to required credentials
+- get_n8n_workflows: Get user's n8n workflows and display their N8N URLs
 
 Approach each task systematically:
 1. First understand what the user wants (use query_analyzer if needed)
