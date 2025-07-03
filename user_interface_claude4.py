@@ -132,7 +132,8 @@ def mongodb_tool(input_data):
 
     try:
         collection = db[collection_name]
-        docs = list(collection.find(query_filter))
+        # Only return _id, name, and description fields
+        docs = list(collection.find(query_filter, {"_id": 1, "name": 1, "description": 1}))
         
         # Recursively convert all MongoDB objects to JSON-serializable format
         serializable_docs = [convert_for_json(doc) for doc in docs]
