@@ -10,6 +10,7 @@ db = MongoClient(os.getenv("MONGODB_URI")).vibeflows
 
 def flow_designer(input_data: dict) -> dict:
     requirements = input_data.get('requirements', '')
+    user_id = input_data.get('user_id')
     
     system_prompt = """You are a workflow architect. Design flows that break down user requirements into executable nodes.
 
@@ -71,10 +72,13 @@ Return ONLY valid JSON with this structure:
         flow_spec = json.loads(response_text)
         
         # Save to database
-        result = db.flows.insert_one({
+        flow_data = {
             **flow_spec,
             "created_at": datetime.utcnow()
-        })
+        }
+        if user_id:
+            flow_data["user_id"] = user_id
+        result = db.flows.insert_one(flow_data)
         _id = result.inserted_id  
         flow_spec['_id'] = str(_id)
         

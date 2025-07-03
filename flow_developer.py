@@ -17,6 +17,7 @@ def flow_developer(input_data):
     """
 
     flow_id = input_data['flow_id']
+    user_id = input_data.get('user_id')
     flow = db.flows.find_one({'_id': ObjectId(flow_id)})
     print(flow)
 
@@ -48,6 +49,8 @@ def flow_developer(input_data):
     # Update flow in database
     new_flow['status'] = 'developed'
     new_flow['agents_created_count'] = len(agent_ids)
+    if user_id:
+        new_flow['user_id'] = user_id
     db.flows.replace_one({'_id': ObjectId(flow_id)}, new_flow)
     
     return {
@@ -63,6 +66,7 @@ async def flow_developer_streaming(input_data):
     Streams updates as agents are created in separate processes.
     """
     flow_id = input_data['flow_id']
+    user_id = input_data.get('user_id')
     flow = db.flows.find_one({'_id': ObjectId(flow_id)})
     if not flow:
         yield {"message": "❌ Flow not found", "type": "error"}
@@ -213,6 +217,8 @@ async def flow_developer_streaming(input_data):
     try:
         new_flow['status'] = 'developed'
         new_flow['agents_created_count'] = len(agent_ids)
+        if user_id:
+            new_flow['user_id'] = user_id
         db.flows.replace_one({'_id': ObjectId(flow_id)}, new_flow)
         
         yield {
