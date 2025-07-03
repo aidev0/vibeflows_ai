@@ -612,19 +612,26 @@ Note: N8N deployments can take up to 3 minutes - this is normal for complex work
                 
                 # If we executed tools, continue conversation with results
                 if tool_results:
-                    # Add assistant message and tool results to conversation
+                    # Add assistant message with tool calls
+                    assistant_content = []
                     if current_text.strip():
-                        messages.append({
-                            "role": "assistant",
-                            "content": [
-                                {"type": "text", "text": current_text}
-                            ] + [
-                                {"type": "tool_use", "id": tc["id"], "name": tc["name"], "input": tc["input"]}
-                                for tc in tool_calls
-                            ]
+                        assistant_content.append({"type": "text", "text": current_text})
+                    
+                    # Add tool use blocks
+                    for tc in tool_calls:
+                        assistant_content.append({
+                            "type": "tool_use", 
+                            "id": tc["id"], 
+                            "name": tc["name"], 
+                            "input": tc["input"]
                         })
                     
-                    # Add tool results
+                    messages.append({
+                        "role": "assistant",
+                        "content": assistant_content
+                    })
+                    
+                    # Add tool results as user message
                     messages.append({
                         "role": "user",
                         "content": tool_results
