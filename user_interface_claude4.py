@@ -218,7 +218,7 @@ def get_n8n_workflows(input_data):
         # Get user's n8n workflows, sorted by most recent
         workflows = list(db.n8n_workflows.find(
             {"user_id": clean_user_id}, 
-            {"_id": 1, "name": 1, "description": 1, "n8n_response": 1, "created_at": 1}
+            {"_id": 1, "n8n_response": 1, "created_at": 1}
         ).sort("created_at", -1).limit(limit))
         
         workflow_urls = []
@@ -231,8 +231,6 @@ def get_n8n_workflows(input_data):
                 workflow_url = f"{n8n_base_url}/workflow/{workflow_id}"
                 workflow_urls.append({
                     "_id": str(workflow["_id"]),
-                    "name": workflow.get("name", "Unnamed Workflow"),
-                    "description": workflow.get("description", ""),
                     "n8n_workflow_id": workflow_id,
                     "n8n_url": workflow_url,
                     "created_at": workflow.get("created_at")
