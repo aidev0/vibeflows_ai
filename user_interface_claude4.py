@@ -235,8 +235,12 @@ async def run_claude_agent_flow(user_query: str, chat_id: str, user_id: str) -> 
             yield _stream_event(f"❌ Error: {str(e)}", "error", final=True)
             return
 
-    # Build system prompt
-    system_prompt = """You are an expert automation assistant. Think through problems step by step and explain your reasoning clearly.
+    # Build system prompt with user context
+    system_prompt = f"""You are an expert automation assistant. Think through problems step by step and explain your reasoning clearly.
+
+Current session context:
+- User ID: {user_id}
+- Chat ID: {chat_id}
 
 Available tools:
 - query_analyzer: Analyze user queries for intent and requirements
@@ -252,6 +256,8 @@ Approach each task systematically:
 3. Use tools in logical sequence
 4. Provide clear progress updates
 5. Think aloud about your decisions
+
+When querying databases, you can use the current user_id ({user_id}) and chat_id ({chat_id}) to filter results appropriately.
 
 If user asks for n8n deploy, use the n8n_developer tool. 
 Don't ask for credentials, just deploy. 
