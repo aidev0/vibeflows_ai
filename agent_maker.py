@@ -4,9 +4,11 @@ import os
 from pymongo import MongoClient
 from datetime import datetime
 import asyncio
+import anthropic
 
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 db = MongoClient(os.getenv("MONGODB_URI")).vibeflows
+claude_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 AGENT_PROMPT = """You are an expert agent architect. 
 Create an agent specification for this node:
@@ -388,4 +390,100 @@ def agent_developer(input_data: dict) -> dict:
         
     except Exception as e:
         print(f"❌ Error in agent_developer: {str(e)}")
+        raise
+
+def agent_developer_claude4(input_data: dict) -> dict:
+    """
+    Design an executable agent from a flow node specification using Claude 4
+    
+    Args:
+        input_data: Dictionary containing:
+            - requirements: Stringified agent node or additional requirements
+            - user_id: User ID for ownership tracking
+        
+    Returns:
+        Dictionary containing agent specification and agent_id
+    """
+
+    requirements = input_data.get("requirements", "")
+    user_id = input_data.get("user_id")
+    
+    try:
+        # Get available resources
+        tools = list(db.tools.find({}))
+        integrations = list(db.integrations.find({}))
+        credentials = list(db.credentials.find({}, {"name": 1}))
+        
+        system_prompt = """You are an expert agent architect. Create an agent specification for the given node requirements.
+
+Return ONLY valid JSON matching the agent schema. No markdown, no explanations."""
+        
+        prompt = AGENT_PROMPT.format(
+            requirements=requirements,
+            tools="",
+            integrations="",
+            credentials=str(credentials),
+            agent_schema=str(AGENT_SCHEMA),
+            node_schema=json.dumps(NODE_SCHEMA, indent=2),
+            edge_schema=json.dumps(EDGE_SCHEMA, indent=2),
+            tool_schema=json.dumps(TOOL_NODE_SCHEMA, indent=2),
+            integration_schema=json.dumps(INTEGRATION_SCHEMA, indent=2),
+            mcp_client_schema=json.dumps(MCP_CLIENT_SCHEMA, indent=2),
+            llm_node_schema=json.dumps(LLM_NODE_SCHEMA, indent=2)
+        )
+        
+        print("🤖 Generating agent with Claude 4...")
+        
+        # Use Claude 4 instead of Gemini
+        response = claude_client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=8000,
+            system=system_prompt,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        
+        text = response.content[0].text.strip()
+        
+        # Clean response of markdown code blocks if present
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0].strip()
+        
+        # Parse JSON with error handling
+        try:
+            agent_spec = json.loads(text)
+            print("✅ Agent specification generated successfully with Claude 4!")
+        except json.JSONDecodeError as e:
+            print(f"❌ Failed to parse agent JSON: {str(e)}")
+            # Create a minimal fallback agent
+            agent_spec = {
+                "name": "Fallback Agent",
+                "description": "Generated due to JSON parsing error",
+                "nodes": [],
+                "edges": [],
+                "input_schema": {},
+                "output_schema": {},
+                "function": "def fallback_agent(input_data):\n    return {'error': 'Agent generation failed', 'input': input_data}",
+                "tools": [],
+                "integrations": [],
+                "mcp_clients": [],
+                "status": "error"
+            }
+        
+        # Store agent in database with user_id
+        agent_data = {
+            **agent_spec,
+            "created_at": datetime.utcnow(),
+            "status": "ready"
+        }
+        if user_id:
+            agent_data["user_id"] = user_id
+            
+        result = db.agents.insert_one(agent_data)
+        
+        return {**agent_spec, "agent_id": str(result.inserted_id)}
+        
+    except Exception as e:
+        print(f"❌ Error in agent_developer_claude4: {str(e)}")
         raise

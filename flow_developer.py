@@ -7,9 +7,12 @@ from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
 import sys
 from io import StringIO
+import anthropic
+from datetime import datetime
 
 client = MongoClient(os.getenv('MONGODB_URI'))
 db = client.vibeflows
+claude_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 def flow_developer(input_data):
     """
@@ -299,3 +302,111 @@ def create_agent_sync(node_data):
             'message': f"❌ [Process {node_index+1}] Failed: {str(e)}",
             'captured_output': ''
         }
+
+async def flow_developer_claude4_sequential(input_data):
+    """
+    Develops a flow by generating agents for each node using Claude 4 SEQUENTIALLY.
+    Uses agent_maker to create agents properly.
+    """
+    flow_id = input_data['flow_id']
+    user_id = input_data.get('user_id')
+    flow = db.flows.find_one({'_id': ObjectId(flow_id)})
+    
+    if not flow:
+        yield {"message": "❌ Flow not found", "type": "error"}
+        return
+
+    yield {"message": f"🔍 Found flow: {flow.get('name', 'Unnamed')}", "type": "status"}
+    new_flow = flow.copy()
+    
+    agents_created = []
+    agent_ids = []
+    
+    # Count agent nodes to process
+    agent_nodes = [node for node in flow['nodes'] if node['type'] == 'agent' and not node.get('agent_id')]
+    
+    if not agent_nodes:
+        yield {"message": "ℹ️ No agent nodes to process", "type": "info"}
+        return
+
+    yield {"message": f"🚀 Processing {len(agent_nodes)} agent nodes SEQUENTIALLY with Claude 4 agent maker...", "type": "status"}
+
+    # Import agent_maker
+    from agent_maker import agent_developer_claude4
+
+    # Process each node sequentially using agent_maker
+    for i, node in enumerate(agent_nodes):
+        node_id = node['id']
+        node_name = node.get('name', f'agent_{node_id}')
+        
+        yield {"message": f"🔨 [{i+1}/{len(agent_nodes)}] Creating agent for node: {node_name} (ID: {node_id})", "type": "agent_start"}
+        
+        try:
+            # Use agent_maker to create the agent
+            agent_input = {
+                'requirements': str(node),
+                'user_id': user_id
+            }
+            
+            yield {"message": f"🤖 [{i+1}/{len(agent_nodes)}] Calling Claude 4 agent maker for {node_name}...", "type": "agent_stream"}
+            
+            # Create agent using agent_maker
+            result = agent_developer_claude4(agent_input)
+            agent_id = result.get('agent_id')
+            
+            # Update node with agent_id
+            for j, n in enumerate(new_flow['nodes']):
+                if n['id'] == node_id:
+                    new_flow['nodes'][j]['agent_id'] = agent_id
+                    break
+            
+            agents_created.append(result)
+            agent_ids.append(agent_id)
+            
+            yield {
+                "message": f"✅ [{i+1}/{len(agent_nodes)}] Agent created: {result.get('name', 'Unnamed')} (ID: {agent_id})",
+                "type": "agent_complete",
+                "node_id": node_id,
+                "agent_id": agent_id
+            }
+            
+        except Exception as e:
+            yield {
+                "message": f"❌ [{i+1}/{len(agent_nodes)}] Failed to create agent for {node_name}: {str(e)}",
+                "type": "agent_error",
+                "node_id": node_id,
+                "error": str(e)
+            }
+
+    # Update flow in database
+    try:
+        new_flow['status'] = 'developed'
+        new_flow['agents_created_count'] = len(agent_ids)
+        if user_id:
+            new_flow['user_id'] = user_id
+        db.flows.replace_one({'_id': ObjectId(flow_id)}, new_flow)
+        
+        yield {
+            "message": f"🎉 SEQUENTIAL DEVELOPMENT COMPLETE! ✅ {len(agent_ids)} agents created with Claude 4 agent maker",
+            "type": "complete",
+            "agents_created": len(agent_ids),
+            "total_nodes": len(agent_nodes),
+            "agent_ids": agent_ids,
+            "sequential_processing": True,
+            "result": {
+                "status": "Flow developed",
+                "agents_created": agents_created,
+                "agent_ids": agent_ids,
+                "development_complete": True,
+                "sequential_processing": True,
+                "claude4": True
+            }
+        }
+        
+    except Exception as e:
+        yield {
+            "message": f"❌ Error updating flow: {str(e)}",
+            "type": "database_error",
+            "error": str(e)
+        }
+

@@ -116,7 +116,7 @@ db = client.vibeflows
 # === TOOL MAPPINGS ===
 from query_analyzer import query_analyzer
 from flow_designer import flow_designer
-from flow_developer import flow_developer_streaming
+from flow_developer import flow_developer_streaming, flow_developer_claude4_sequential
 from n8n_developer import n8n_developer
 from flow_runner import flow_runner
 
@@ -252,7 +252,7 @@ def get_n8n_workflows(input_data):
 TOOLS = {
     "query_analyzer": query_analyzer,
     "flow_designer": flow_designer,
-    "flow_developer": flow_developer_streaming,
+    "flow_developer": flow_developer_claude4_sequential,
     "n8n_developer": n8n_developer,
     "flow_runner": flow_runner,
     "mongodb_tool": mongodb_tool,
@@ -486,12 +486,12 @@ Note: N8N deployments can take up to 3 minutes - this is normal for complex work
                         if tool_name in TOOLS:
                             # Special handling for streaming flow_developer
                             if tool_name == "flow_developer":
-                                yield _stream_event("🚀 Starting flow development with real-time agent streaming...", "executing")
+                                yield _stream_event("🚀 Starting flow development with Claude 4 sequential processing...", "executing")
                                 
-                                from flow_developer import flow_developer_streaming
+                                from flow_developer import flow_developer_claude4_sequential
                                 
                                 # Stream flow development updates in real-time
-                                async for update in flow_developer_streaming(tool_input):
+                                async for update in flow_developer_claude4_sequential(tool_input):
                                     message = update.get("message", "")
                                     update_type = update.get("type", "status")
                                     
@@ -512,7 +512,7 @@ Note: N8N deployments can take up to 3 minutes - this is normal for complex work
                                     await asyncio.sleep(0.05)  # Small delay for readability
                                 
                                 # Set result for Claude
-                                result_msg = "✅ Flow development completed with real-time agent creation streaming"
+                                result_msg = "✅ Flow development completed with Claude 4 sequential agent creation"
                                 yield _stream_event(result_msg, "tool_result")
                                 save_message(chat_id, "assistant", "text", result_msg)
                                 
