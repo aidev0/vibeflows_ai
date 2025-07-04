@@ -166,11 +166,18 @@ def get_credential_names(input_data):
         # Format credentials for display
         formatted_creds = []
         for cred in user_creds:
+            # Convert datetime to string for JSON serialization
+            created_at = cred.get("created_at")
+            if created_at:
+                created_at_str = created_at.isoformat() if hasattr(created_at, 'isoformat') else str(created_at)
+            else:
+                created_at_str = "Unknown"
+            
             formatted_creds.append({
                 "name": cred.get("name", ""),
                 "description": cred.get("description", "No description"),
                 "type": cred.get("type", "unknown"),
-                "created_at": cred.get("created_at")
+                "created_at": created_at_str
             })
         
         return {
