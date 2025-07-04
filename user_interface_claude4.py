@@ -447,6 +447,10 @@ Note: N8N deployments can take up to 3 minutes - this is normal for complex work
                     tool_input = tool_call["input"]
                     tool_id = tool_call["id"]
                     
+                    # Add user_id and chat_id to all tool inputs
+                    tool_input["user_id"] = user_id
+                    tool_input["chat_id"] = chat_id
+                    
                     # Set appropriate timeout based on tool type
                     timeout = 240                    
                     yield _stream_event(f"🚀 Executing {tool_name} ({i+1}/{len(tool_calls)})...", "executing")
@@ -543,7 +547,6 @@ Note: N8N deployments can take up to 3 minutes - this is normal for complex work
                                     if not (has_url and has_key):
                                         return {"status": "skipped", "message": "⚠️ Missing N8N credentials (N8N_URL and N8N_API_KEY)", "credentials": creds}
                                     else:
-                                        tool_input["user_id"] = str(user_id)
                                         return TOOLS[tool_name](tool_input)
                                 
                                 else:
