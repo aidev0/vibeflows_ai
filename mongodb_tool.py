@@ -177,3 +177,103 @@ def get_credential_names(input_data):
         
     except Exception as e:
         return {"error": str(e), "message": "❌ Failed to get credentials"}
+
+def get_flow_and_agents(input_data):
+    """Get all agents for a given flow_id by fetching agents from flow nodes with agent_id"""
+    flow_id = input_data["flow_id"]
+    
+    try:
+        # Convert flow_id to ObjectId if it's a string
+        if isinstance(flow_id, str):
+            try:
+                flow_object_id = ObjectId(flow_id)
+            except:
+                return {"error": "Invalid flow_id format", "message": "❌ Invalid flow_id format"}
+        else:
+            flow_object_id = flow_id
+        
+        # Get the flow from database
+        flow = db.flows.find_one({"_id": flow_object_id})
+        if not flow:
+            return {"error": "Flow not found", "message": f"❌ Flow with ID {flow_id} not found"}
+        
+        # Extract agent_ids from flow nodes
+        agent_ids = []
+        nodes_with_agents = []
+        
+        for node in flow.get("nodes", []):
+            if node.get("type") == "agent" and node.get("agent_id"):
+                agent_id = node["agent_id"]
+                agent_ids.append(agent_id)
+                nodes_with_agents.append({
+                    "node_id": node.get("id"),
+                    "node_name": node.get("name", "Unnamed Node"),
+                    "agent_id": agent_id
+                })
+        
+        if not agent_ids:
+            return {
+                "flow_id": flow_id,
+                "flow_name": flow.get("name", "Unnamed Flow"),
+                "agents": [],
+                "nodes_with_agents": [],
+                "message": "📭 No agents found in this flow"
+            }
+        
+        # Convert agent_ids to ObjectIds for database query
+        agent_object_ids = []
+        for agent_id in agent_ids:
+            try:
+                if isinstance(agent_id, str):
+                    agent_object_ids.append(ObjectId(agent_id))
+                else:
+                    agent_object_ids.append(agent_id)
+            except:
+                # Skip invalid agent_ids
+                continue
+        
+        # Fetch agents from database
+        agents = list(db.agents.find(
+            {"_id": {"$in": agent_object_ids}},
+            {"_id": 1, "name": 1, "description": 1, "status": 1, "created_at": 1}
+        ))
+        
+        # Convert ObjectIds to strings for JSON serialization
+        formatted_agents = []
+        for agent in agents:
+            formatted_agents.append({
+                "_id": str(agent["_id"]),
+                "name": agent.get("name", "Unnamed Agent"),
+                "description": agent.get("description", "No description"),
+                "status": agent.get("status", "unknown"),
+                "created_at": agent.get("created_at")
+            })
+        
+        # Match agents with their corresponding nodes
+        agent_node_mapping = []
+        for node_info in nodes_with_agents:
+            matching_agent = None
+            for agent in formatted_agents:
+                if agent["_id"] == str(node_info["agent_id"]):
+                    matching_agent = agent
+                    break
+            
+            agent_node_mapping.append({
+                "node_id": node_info["node_id"],
+                "node_name": node_info["node_name"],
+                "agent_id": node_info["agent_id"],
+                "agent": matching_agent
+            })
+        
+        return {
+            "flow_id": flow_id,
+            "flow_name": flow.get("name", "Unnamed Flow"),
+            "agents": formatted_agents,
+            "nodes_with_agents": nodes_with_agents,
+            "agent_node_mapping": agent_node_mapping,
+            "count": len(formatted_agents),
+            "message": f"✅ Found {len(formatted_agents)} agent(s) for flow '{flow.get('name', 'Unnamed Flow')}'"
+        }
+        
+    except Exception as e:
+        return {"error": str(e), "message": "❌ Failed to get agents for flow"}

@@ -596,11 +596,52 @@ async def flow_developer_claude4_sequential(input_data):
             result = agent_developer_claude4(agent_input)
             agent_id = result.get('agent_id')
             
-            # Update node with agent_id
+            print(f"🔍 Agent created with ID: {agent_id}")
+            print(f"🔍 Looking for node with ID: {node_id}")
+            
+            # Update node with agent_id - FIXED approach
+            node_updated = False
+            print(f"🔍 Searching for node_id '{node_id}' in {len(new_flow['nodes'])} total nodes")
+            
             for j, n in enumerate(new_flow['nodes']):
-                if n['id'] == node_id:
+                current_node_id = n.get('id', '')
+                print(f"   Node {j}: id='{current_node_id}' type='{n.get('type', 'unknown')}'")
+                
+                if current_node_id == node_id:
                     new_flow['nodes'][j]['agent_id'] = agent_id
+                    node_updated = True
+                    print(f"✅ SUCCESS: Updated node '{node_id}' with agent_id: {agent_id}")
+                    print(f"🔍 Node after update has keys: {list(new_flow['nodes'][j].keys())}")
                     break
+            
+            if not node_updated:
+                print(f"❌ CRITICAL ERROR: Could not find node '{node_id}' in flow")
+                print(f"🔍 Available node IDs: {[n.get('id', 'NO_ID') for n in new_flow['nodes']]}")
+                print(f"🔍 Agent nodes IDs: {[n.get('id', 'NO_ID') for n in agent_nodes]}")
+                
+                # Emergency fallback - update by position if IDs don't match
+                if i < len(agent_nodes):
+                    print(f"🚨 Emergency fallback: Updating node by position {i}")
+                    # Find the agent node in the full nodes list
+                    agent_node_count = 0
+                    for j, n in enumerate(new_flow['nodes']):
+                        if n.get('type') == 'agent':
+                            if agent_node_count == i:
+                                new_flow['nodes'][j]['agent_id'] = agent_id
+                                node_updated = True
+                                print(f"✅ Fallback SUCCESS: Updated agent node at position {i} with agent_id: {agent_id}")
+                                break
+                            agent_node_count += 1
+            
+            if not node_updated:
+                print(f"💀 TOTAL FAILURE: Could not update any node with agent_id {agent_id}")
+                # At least track that we created an agent
+                yield {
+                    "message": f"⚠️ Agent created but not linked to node: {agent_id}",
+                    "type": "warning",
+                    "agent_id": agent_id,
+                    "node_id": node_id
+                }
             
             agents_created.append(result)
             agent_ids.append(agent_id)
@@ -626,7 +667,20 @@ async def flow_developer_claude4_sequential(input_data):
         new_flow['agents_created_count'] = len(agent_ids)
         if user_id:
             new_flow['user_id'] = user_id
+        
+        # Debug: Print what we're about to save
+        print(f"🔍 About to save flow with {len(agent_ids)} agents")
+        for i, node in enumerate(new_flow['nodes']):
+            if node.get('type') == 'agent':
+                agent_id = node.get('agent_id', 'MISSING')
+                print(f"   Node {i}: {node.get('name')} -> agent_id: {agent_id}")
+        
         db.flows.replace_one({'_id': ObjectId(flow_id)}, new_flow)
+        print(f"✅ Flow updated in database")
+        
+        # Final verification
+        final_agent_count = len([n for n in new_flow['nodes'] if n.get('type') == 'agent' and n.get('agent_id')])
+        print(f"🎯 Final verification: {final_agent_count}/{len(agent_nodes)} nodes have agent_ids")
         
         yield {
             "message": f"🎉 SEQUENTIAL DEVELOPMENT COMPLETE! ✅ {len(agent_ids)} agents created with Claude 4 agent maker",

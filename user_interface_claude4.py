@@ -72,6 +72,7 @@ Available tools:
 - check_credentials: Check if user has access to required credentials
 - get_n8n_workflows: Get user's n8n workflows and display their N8N URLs
 - get_credential_names: Get user's credential names and descriptions
+- get_flow_and_agents: Get all agents for a given flow_id by fetching agents from flow nodes
 
 Approach each task systematically:
 1. First understand what the user wants (use query_analyzer if needed)

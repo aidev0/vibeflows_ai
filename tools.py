@@ -117,6 +117,17 @@ def get_tool_schemas():
                 },
                 "required": ["user_id"]
             }
+        },
+        {
+            "name": "get_flow_and_agents",
+            "description": "Gets all agents for a given flow_id by fetching agents from flow nodes with agent_id",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "flow_id": {"type": "string"}
+                },
+                "required": ["flow_id"]
+            }
         }
     ]
 
@@ -126,7 +137,7 @@ from flow_designer import flow_designer
 from flow_developer import flow_developer_streaming, flow_developer_claude4_sequential, flow_developer_gemini
 from n8n_developer import n8n_developer
 from flow_runner import flow_runner
-from mongodb_tool import mongodb_tool, check_credentials, get_n8n_workflows, get_credential_names
+from mongodb_tool import mongodb_tool, check_credentials, get_n8n_workflows, get_credential_names, get_flow_and_agents
 
 # === TOOL MAPPINGS ===
 TOOLS = {
@@ -139,5 +150,6 @@ TOOLS = {
     "mongodb_tool": mongodb_tool,
     "check_credentials": check_credentials,
     "get_n8n_workflows": get_n8n_workflows,
-    "get_credential_names": get_credential_names
+    "get_credential_names": get_credential_names,
+    "get_flow_and_agents": get_flow_and_agents
 }
