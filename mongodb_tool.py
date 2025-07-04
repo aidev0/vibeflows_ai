@@ -3,6 +3,10 @@ import json
 from bson import ObjectId
 from datetime import datetime
 from pymongo import MongoClient
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # === DATABASE CONNECTION ===
 client = MongoClient(os.getenv("MONGODB_URI"))
@@ -172,7 +176,9 @@ def get_credential_names(input_data):
         return {
             "credentials": formatted_creds,
             "count": len(formatted_creds),
-            "message": f"✅ Found {len(formatted_creds)} credential(s) for user"
+            "credential_names": [cred["name"] for cred in formatted_creds],
+            "message": f"✅ Found {len(formatted_creds)} credential(s) for user",
+            "data_type": "credentials"
         }
         
     except Exception as e:

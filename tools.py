@@ -109,7 +109,7 @@ def get_tool_schemas():
         },
         {
             "name": "get_credential_names",
-            "description": "Gets user's credential names and descriptions",
+            "description": "Gets user's available CREDENTIALS (not agents) - returns credential names, types, and descriptions for authentication/API access",
             "input_schema": {
                 "type": "object",
                 "properties": {
