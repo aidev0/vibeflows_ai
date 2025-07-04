@@ -356,6 +356,25 @@ Note: N8N deployments can take up to 3 minutes - this is normal for complex work
                                     result_msg = result.get("message", "N8N deployment skipped")
                                 else:
                                     result_msg = result.get("summary") or result.get("message") or "✅ N8N workflow processed"
+                            elif tool_name == "get_credential_names":
+                                # Special handling for credential names
+                                creds = result.get("credentials", [])
+                                if creds:
+                                    result_msg = f"✅ Found {len(creds)} credentials:\n"
+                                    for cred in creds:
+                                        result_msg += f"- {cred['name']} ({cred['type']}): {cred['description']}\n"
+                                else:
+                                    result_msg = result.get("message", "No credentials found")
+                            elif tool_name == "get_flow_and_agents":
+                                # Special handling for flow and agents
+                                agents = result.get("agents", [])
+                                flow_name = result.get("flow_name", "Unknown")
+                                if agents:
+                                    result_msg = f"✅ Flow '{flow_name}' has {len(agents)} agents:\n"
+                                    for agent in agents:
+                                        result_msg += f"- {agent['name']}: {agent['description']}\n"
+                                else:
+                                    result_msg = result.get("message", f"No agents found in flow '{flow_name}'")
                             else:
                                 result_msg = result.get("summary") or result.get("message") or f"✅ {tool_name} completed"
                             
@@ -369,6 +388,9 @@ Note: N8N deployments can take up to 3 minutes - this is normal for complex work
                                 tool_result_content = f"{result_msg}\n\nFlow ID for development: {result['flow_id']}"
                             elif tool_name == "mongodb_tool" and result.get("results"):
                                 tool_result_content = f"{result_msg}\n\nData: {json.dumps(result['results'], indent=2)}"
+                            elif tool_name == "get_credential_names" and result.get("credentials"):
+                                # Include full credential details for Claude
+                                tool_result_content = f"{result_msg}\n\nFull credential list:\n{json.dumps(result['credentials'], indent=2)}"
                             
                             tool_results.append({
                                 "tool_use_id": tool_id,
