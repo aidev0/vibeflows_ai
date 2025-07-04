@@ -675,12 +675,25 @@ async def flow_developer_claude4_sequential(input_data):
                 agent_id = node.get('agent_id', 'MISSING')
                 print(f"   Node {i}: {node.get('name')} -> agent_id: {agent_id}")
         
-        db.flows.replace_one({'_id': ObjectId(flow_id)}, new_flow)
-        print(f"✅ Flow updated in database")
+        result = db.flows.replace_one({'_id': ObjectId(flow_id)}, new_flow)
+        print(f"✅ Flow updated in database (modified_count: {result.modified_count})")
         
-        # Final verification
+        # Final verification - check what was actually saved
         final_agent_count = len([n for n in new_flow['nodes'] if n.get('type') == 'agent' and n.get('agent_id')])
-        print(f"🎯 Final verification: {final_agent_count}/{len(agent_nodes)} nodes have agent_ids")
+        print(f"🎯 Memory verification: {final_agent_count}/{len(agent_nodes)} nodes have agent_ids")
+        
+        # Database verification - check what's actually in the database
+        saved_flow = db.flows.find_one({'_id': ObjectId(flow_id)})
+        if saved_flow:
+            saved_nodes = saved_flow.get('nodes', [])
+            saved_agent_nodes = [n for n in saved_nodes if n.get('type') == 'agent']
+            saved_nodes_with_agent_id = [n for n in saved_agent_nodes if n.get('agent_id')]
+            print(f"🎯 Database verification: {len(saved_nodes_with_agent_id)}/{len(saved_agent_nodes)} nodes have agent_ids in DB")
+            
+            if len(saved_nodes_with_agent_id) != final_agent_count:
+                print(f"🚨 WARNING: Memory and database counts don't match!")
+        else:
+            print(f"❌ Could not retrieve saved flow for verification")
         
         yield {
             "message": f"🎉 SEQUENTIAL DEVELOPMENT COMPLETE! ✅ {len(agent_ids)} agents created with Claude 4 agent maker",
