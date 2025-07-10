@@ -11,6 +11,10 @@ import traceback
 from pymongo import MongoClient
 import os
 import uuid
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Database connection
 client = MongoClient(os.getenv('MONGODB_URI'))
@@ -63,7 +67,9 @@ async def process_ai_request_stream(request: AIRequest):
                 await stream_queue.put(message)
                 
         except Exception as e:
-            error_msg = f"data: {json.dumps({'type': 'error', 'message': f'❌ Claude agent error: {str(e)}', 'final': True})}\n\n"
+            # Improve error message handling to avoid "'type'" errors
+            error_details = f"{type(e).__name__}: {str(e)}" if str(e) else f"{type(e).__name__}: No error details available"
+            error_msg = f"data: {json.dumps({'type': 'error', 'message': f'❌ Claude agent error: {error_details}', 'final': True})}\n\n"
             await stream_queue.put(error_msg)
         finally:
             # Signal completion

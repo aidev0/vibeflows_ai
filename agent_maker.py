@@ -222,14 +222,14 @@ def agent_developer(input_data: dict) -> dict:
     
     try:
         # Get available resources
-        tools = list(db.tools.find({}))
-        integrations = list(db.integrations.find({}))
+        tools = list(db.tools.find({"name": 1}))
+        integrations = list(db.integrations.find({"name": 1}))
         credentials = list(db.credentials.find({}, {"name": 1}))
         
         system = AGENT_PROMPT.format(
             requirements=requirements,
-            tools="",
-            integrations="",
+            tools=tools,
+            integrations=integrations,
             credentials=str(credentials),
             agent_schema=str(AGENT_SCHEMA),
             node_schema=json.dumps(NODE_SCHEMA, indent=2),
@@ -410,8 +410,8 @@ def agent_developer_claude4(input_data: dict) -> dict:
     
     try:
         # Get available resources
-        tools = list(db.tools.find({}))
-        integrations = list(db.integrations.find({}))
+        tools = list(db.tools.find({"name": 1}))
+        integrations = list(db.integrations.find({"name": 1}))
         credentials = list(db.credentials.find({}, {"name": 1}))
         
         system_prompt = """You are an expert agent architect. Create an agent specification for the given node requirements.
@@ -420,8 +420,8 @@ Return ONLY valid JSON matching the agent schema. No markdown, no explanations."
         
         prompt = AGENT_PROMPT.format(
             requirements=requirements,
-            tools="",
-            integrations="",
+            tools=tools,
+            integrations=integrations,
             credentials=str(credentials),
             agent_schema=str(AGENT_SCHEMA),
             node_schema=json.dumps(NODE_SCHEMA, indent=2),

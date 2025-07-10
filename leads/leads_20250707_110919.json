@@ -1,0 +1,62 @@
+{
+  "success": true,
+  "leads": [],
+  "metadata": {
+    "total_leads_found": 0,
+    "total_available": 0,
+    "page": 1,
+    "per_page": 25,
+    "features_extracted": [
+      "id",
+      "first_name",
+      "last_name",
+      "name",
+      "email",
+      "title",
+      "linkedin_url",
+      "phone_numbers",
+      "organization_name",
+      "organization_website_url",
+      "organization_industry",
+      "organization_size",
+      "organization_revenue",
+      "organization_city",
+      "organization_state",
+      "organization_country",
+      "organization_linkedin_url"
+    ],
+    "execution_time": 0.6935763359069824,
+    "timestamp": "2025-07-07T18:09:19.046060+00:00"
+  },
+  "pagination": {
+    "page": 1,
+    "per_page": 25,
+    "total_entries": 0,
+    "total_pages": 0
+  },
+  "query_used": {
+    "api_key": "rP2Z1P9jvGpTYF-poqqMdg",
+    "page": 1,
+    "per_page": 25,
+    "organization_locations": [
+      "United States"
+    ],
+    "organization_industries": [
+      "Marketing & Advertising",
+      "Digital Marketing",
+      "Marketing Services",
+      "Marketing Agency"
+    ],
+    "organization_num_employees_ranges": [
+      "51,200"
+    ],
+    "organization_revenue_ranges": [
+      "$1M,$5M",
+      "$5M,$10M",
+      "$10M,$50M",
+      "$50M,$100M",
+      "$100M,$500M",
+      "$500M,$1B"
+    ]
+  }
+}

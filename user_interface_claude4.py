@@ -8,6 +8,10 @@ import anthropic
 from typing import AsyncGenerator, Dict, Any, List
 from concurrent.futures import ThreadPoolExecutor
 import time
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # === TOOL IMPORTS ===
 from tools import get_tool_schemas, TOOLS
