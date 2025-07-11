@@ -9,6 +9,7 @@ from typing import AsyncGenerator, Dict, Any, List
 from concurrent.futures import ThreadPoolExecutor
 import time
 from dotenv import load_dotenv
+import uuid
 
 # Load environment variables
 load_dotenv()
@@ -98,18 +99,35 @@ Be conversational and share your thought process as you work through the automat
 Note: N8N deployments can take up to 3 minutes - this is normal for complex workflows."""
 
     # Get conversation history
-    previous_messages = list(db.messages.find({"chat_id": chat_id}).sort("timestamp", 1))[-8:]
+    try:
+        previous_messages = list(db.messages.find({"chat_id": chat_id}).sort("timestamp", 1))[-8:]
+    except Exception as e:
+        print(f"Error fetching messages: {e}")
+        previous_messages = []
     
     # Build messages array
     messages = []
     
     # Add conversation history
     for msg in previous_messages:
-        if msg["role"] in ["user", "assistant"] and msg["type"] == "text":
-            messages.append({
-                "role": msg["role"],
-                "content": msg["text"]
-            })
+        try:
+            # Handle both old and new message formats
+            msg_role = msg.get("role") or msg.get("sender")  # Some messages might use 'sender' instead of 'role'
+            msg_type = msg.get("type", "text")  # Default to "text" if type is missing
+            msg_text = msg.get("text", "") or msg.get("content", "")  # Try both text and content fields
+            
+            # Convert sender to role if needed
+            if msg_role == "ai":
+                msg_role = "assistant"
+            
+            if msg_role in ["user", "assistant"] and msg_type == "text" and msg_text:
+                messages.append({
+                    "role": msg_role,
+                    "content": msg_text
+                })
+        except Exception as e:
+            print(f"Error processing message: {e}")
+            continue
     
     # Add current user query
     messages.append({
@@ -144,56 +162,67 @@ Note: N8N deployments can take up to 3 minutes - this is normal for complex work
                 print("=" * 60)
                 
                 for event in stream:
-                    if event.type == "message_start":
-                        print("🚀 [STREAM START]")
-                        yield _stream_event("🧠 Analyzing the request...", "thinking")
-                        await asyncio.sleep(0.1)  # Small delay for readability
-                    
-                    elif event.type == "content_block_start":
-                        if event.content_block.type == "text":
-                            print("💭 [TEXT BLOCK START]")
-                            yield _stream_event("💭 Thinking through the problem...", "reasoning_start")
-                        elif event.content_block.type == "tool_use":
-                            tool_name = event.content_block.name
-                            print(f"🔧 [TOOL START] {tool_name}")
-                            yield _stream_event(f"🔧 Preparing to use {tool_name}...", "tool_prep")
-                            current_tool_input = ""
-                    
-                    elif event.type == "content_block_delta":
-                        if event.delta.type == "text_delta":
-                            # Stream Claude's reasoning in chunks for better readability
-                            text_chunk = event.delta.text
-                            print(text_chunk, end="", flush=True)  # Print Claude's thoughts in real-time
-                            current_text += text_chunk
-                            
-                            # Stream all text chunks immediately for real-time experience
-                            yield _stream_event(text_chunk, "thought_stream")
-                            await asyncio.sleep(0.02)  # Small delay between chunks
+                    # Add try-except to handle malformed events
+                    try:
+                        event_type = getattr(event, 'type', None)
                         
-                        elif event.delta.type == "input_json_delta":
-                            # Throttle tool input updates to avoid spam
-                            current_time = time.time()
-                            current_tool_input += event.delta.partial_json
-                            print(f"[TOOL_INPUT] {event.delta.partial_json}", end="", flush=True)
-                            
-                            if current_time - last_tool_input_time > 0.5:  # Update every 500ms max
-                                yield _stream_event("📝 Building tool parameters...", "tool_input")
-                                last_tool_input_time = current_time
-                                await asyncio.sleep(0.1)
-                    
-                    elif event.type == "content_block_stop":
-                        if hasattr(event.content_block, 'type') and event.content_block.type == "tool_use":
-                            tool_calls.append({
-                                "name": event.content_block.name,
-                                "input": event.content_block.input,
-                                "id": event.content_block.id
-                            })
-                            print(f"\n✅ [TOOL COMPLETE] {event.content_block.name}")
-                            print(f"🔧 [TOOL INPUT] {json.dumps(event.content_block.input, indent=2)}")
-                            yield _stream_event(f"✅ Ready to execute {event.content_block.name}", "tool_ready")
-                            await asyncio.sleep(0.2)
-                        elif hasattr(event.content_block, 'type') and event.content_block.type == "text":
-                            print("\n💭 [TEXT BLOCK COMPLETE]")
+                        if event_type == "message_start":
+                            print("🚀 [STREAM START]")
+                            yield _stream_event("🧠 Analyzing the request...", "thinking")
+                            await asyncio.sleep(0.1)  # Small delay for readability
+                        
+                        elif event_type == "content_block_start":
+                            if hasattr(event, 'content_block') and hasattr(event.content_block, 'type'):
+                                if event.content_block.type == "text":
+                                    print("💭 [TEXT BLOCK START]")
+                                    yield _stream_event("💭 Thinking through the problem...", "reasoning_start")
+                                elif event.content_block.type == "tool_use":
+                                    tool_name = getattr(event.content_block, 'name', 'unknown')
+                                    print(f"🔧 [TOOL START] {tool_name}")
+                                    yield _stream_event(f"🔧 Preparing to use {tool_name}...", "tool_prep")
+                                    current_tool_input = ""
+                        
+                        elif event_type == "content_block_delta":
+                            if hasattr(event, 'delta') and hasattr(event.delta, 'type'):
+                                if event.delta.type == "text_delta":
+                                    # Stream Claude's reasoning in chunks for better readability
+                                    text_chunk = getattr(event.delta, 'text', '')
+                                    print(text_chunk, end="", flush=True)  # Print Claude's thoughts in real-time
+                                    current_text += text_chunk
+                                    
+                                    # Stream all text chunks immediately for real-time experience
+                                    yield _stream_event(text_chunk, "thought_stream")
+                                    await asyncio.sleep(0.02)  # Small delay between chunks
+                                
+                                elif event.delta.type == "input_json_delta":
+                                    # Throttle tool input updates to avoid spam
+                                    current_time = time.time()
+                                    partial_json = getattr(event.delta, 'partial_json', '')
+                                    current_tool_input += partial_json
+                                    print(f"[TOOL_INPUT] {partial_json}", end="", flush=True)
+                                    
+                                    if current_time - last_tool_input_time > 0.5:  # Update every 500ms max
+                                        yield _stream_event("📝 Building tool parameters...", "tool_input")
+                                        last_tool_input_time = current_time
+                                        await asyncio.sleep(0.1)
+                        
+                        elif event_type == "content_block_stop":
+                            if hasattr(event, 'content_block') and hasattr(event.content_block, 'type'):
+                                if event.content_block.type == "tool_use":
+                                    tool_calls.append({
+                                        "name": getattr(event.content_block, 'name', 'unknown'),
+                                        "input": getattr(event.content_block, 'input', {}),
+                                        "id": getattr(event.content_block, 'id', str(uuid.uuid4()))
+                                    })
+                                    print(f"\n✅ [TOOL COMPLETE] {getattr(event.content_block, 'name', 'unknown')}")
+                                    print(f"🔧 [TOOL INPUT] {json.dumps(getattr(event.content_block, 'input', {}), indent=2)}")
+                                    yield _stream_event(f"✅ Ready to execute {getattr(event.content_block, 'name', 'unknown')}", "tool_ready")
+                                    await asyncio.sleep(0.2)
+                                elif event.content_block.type == "text":
+                                    print("\n💭 [TEXT BLOCK COMPLETE]")
+                    except AttributeError as e:
+                        print(f"⚠️ [STREAM WARNING] Malformed event, skipping: {e}")
+                        continue
                 
                 print("\n" + "=" * 60)
                 print("🤖 Claude streaming complete!")

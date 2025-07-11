@@ -68,7 +68,10 @@ async def process_ai_request_stream(request: AIRequest):
                 
         except Exception as e:
             # Improve error message handling to avoid "'type'" errors
+            import traceback
             error_details = f"{type(e).__name__}: {str(e)}" if str(e) else f"{type(e).__name__}: No error details available"
+            print(f"Claude agent error details: {error_details}")
+            print(f"Traceback: {traceback.format_exc()}")
             error_msg = f"data: {json.dumps({'type': 'error', 'message': f'❌ Claude agent error: {error_details}', 'final': True})}\n\n"
             await stream_queue.put(error_msg)
         finally:

@@ -216,3 +216,6 @@ mongodb.log
 *.log
 
 n8n_*.json
+
+# Leads data
+leads/
